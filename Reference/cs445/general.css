@@ -1,0 +1,55 @@
+table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+table, th, td {
+  border: 1px solid black;
+}
+
+a {
+  display: block;
+  font-size: 20px;
+} 
+a.aAssignment {
+  color: #FFFFFF;
+  background-color: purple;
+} 
+a.aDemo { 
+  background-color: yellow;
+} 
+
+a.aNotes { 
+  color: #000000;
+  background-color: white;
+} 
+
+a.aTest { 
+  color: #000000;
+  background-color: red;
+} 
+
+div {
+  display: block;
+  padding-top: 0px;
+  line-height: 1.0;
+  color: #000000;
+  font-size: 20px;
+} 
+
+div.dAssignment {
+  color: #FFFFFF;
+  background-color: purple;
+} 
+
+div.dDemo { 
+  background-color: yellow;
+} 
+
+div.dTest { 
+  background-color: red;
+} 
+
+div.dNothing { 
+  background-color: grey;
+} 

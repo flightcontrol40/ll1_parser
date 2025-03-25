@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "tsc: Typescript to JS",
+			"type": "shell",
+			"command": "tsc",
+			"windows": {
+			  "command": "${workspaceFolder}\\project\\node_modules\\.bin\\tsc"
+			},
+			"args": ["-p", "${workspaceFolder}\\project\\tsconfig.json"],
+
+			"group": "build",
+		}
+	]
+}

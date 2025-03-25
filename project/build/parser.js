@@ -1,0 +1,2194 @@
+"use strict";
+////////////////////////////////////////////////////////////////////////////////
+// 
+// LL1 Parser Table Building Instruction Tool
+//
+// A Teaching tool for showing how to construct the First and Last tables for a 
+// LL1 Parser, given a context free grammar. This program walks through each 
+// step for building out the tables and attempts to give reasoning and
+// instructions to the user on how to construct the tables.
+//
+// Nathan Hampton
+// Spring 2025
+//
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+// Global Constants
+////////////////////////////////////////////////////////////////////////////////
+const epsilon = "e";
+const grammarProductionColumn = "GrammarProductionColumn";
+const productionTableID = "grammarTable";
+const grammarInputBox = "UserGrammar";
+const firstTableDiv = "firstTableDiv";
+const firstTableID = "firstTable";
+const followTableDiv = "followTableDiv";
+const followTableID = "followTable";
+const followRulesID = "followRules";
+const lastTableDiv = "lastTableDiv";
+const lastTableID = "lastTable";
+const messageTableID = "Instructions";
+const emptyCell = ".";
+const defaultGrammar = [
+    "D ::= R",
+    "R ::= B C",
+    "B ::= +",
+    "B ::= e",
+    "C ::= -",
+    "C ::= e",
+].join("\n");
+// Colors to use for tables
+var HTMLColors;
+(function (HTMLColors) {
+    HTMLColors["defaultColor"] = "white";
+    HTMLColors["disableColor"] = "gray";
+    HTMLColors["highlightColor"] = "yellow";
+    HTMLColors["softGreyColor"] = "#e4e3e3";
+    HTMLColors["errorColor"] = "red";
+})(HTMLColors || (HTMLColors = {}));
+// Cell State attributes
+var CellAttr;
+(function (CellAttr) {
+    CellAttr["needsSimplified"] = "data-NeedsSimplified";
+    CellAttr["needsFilled"] = "data-NeedsFilled";
+    CellAttr["parentCellCol"] = "data-ParentCellCol";
+    CellAttr["childCellCol"] = "data-ChildCellCol";
+})(CellAttr || (CellAttr = {}));
+// Steps enum
+var Steps;
+(function (Steps) {
+    Steps[Steps["INVALID"] = -1] = "INVALID";
+    Steps[Steps["ENTER_GRAMMAR"] = 0] = "ENTER_GRAMMAR";
+    Steps[Steps["ENTER_EPSILON"] = 1] = "ENTER_EPSILON";
+    Steps[Steps["ENTER_EPSILON_FROM_EPSILON"] = 2] = "ENTER_EPSILON_FROM_EPSILON";
+    Steps[Steps["FIND_FIRSTS"] = 3] = "FIND_FIRSTS";
+    Steps[Steps["FIND_FIRSTS_COMPUTED"] = 4] = "FIND_FIRSTS_COMPUTED";
+    Steps[Steps["FIND_FOLLOWS"] = 5] = "FIND_FOLLOWS";
+    Steps[Steps["FIND_FOLLOWS_COMPUTED_FIRSTS"] = 6] = "FIND_FOLLOWS_COMPUTED_FIRSTS";
+    Steps[Steps["FIND_FOLLOWS_COMPUTED_FOLLOWS"] = 7] = "FIND_FOLLOWS_COMPUTED_FOLLOWS";
+    Steps[Steps["DONE"] = 8] = "DONE";
+})(Steps || (Steps = {}));
+;
+var FollowRuleType;
+(function (FollowRuleType) {
+    FollowRuleType[FollowRuleType["TERMINAL_FOLLOWS"] = 0] = "TERMINAL_FOLLOWS";
+    FollowRuleType[FollowRuleType["NON_TERMINAL_FOLLOWS"] = 1] = "NON_TERMINAL_FOLLOWS";
+    FollowRuleType[FollowRuleType["END_OF_PRODUCTION"] = 2] = "END_OF_PRODUCTION";
+    FollowRuleType[FollowRuleType["FIRST_SIMPLIFY"] = 3] = "FIRST_SIMPLIFY";
+    FollowRuleType[FollowRuleType["FOLLOW_SIMPLIFY"] = 3] = "FOLLOW_SIMPLIFY";
+})(FollowRuleType || (FollowRuleType = {}));
+////////////////////////////////////////////////////////////////////////////////
+// Global Variables
+////////////////////////////////////////////////////////////////////////////////
+var grammar;
+var currentStep = Steps.ENTER_GRAMMAR;
+var productionTable;
+var firstTable;
+var followTable;
+var instructionString = '';
+var errorString = '';
+var selectedProductionFollowCells = new Map([
+    [FollowRuleType.TERMINAL_FOLLOWS, new Set()],
+    [FollowRuleType.NON_TERMINAL_FOLLOWS, new Set()],
+    [FollowRuleType.END_OF_PRODUCTION, new Set()],
+    [FollowRuleType.FIRST_SIMPLIFY, new Set()],
+    [FollowRuleType.FOLLOW_SIMPLIFY, new Set()],
+]);
+var FollowRules = new Map([
+    [FollowRuleType.TERMINAL_FOLLOWS, "A non-terminal followed by a terminal."],
+    [FollowRuleType.NON_TERMINAL_FOLLOWS, "A non-terminal followed by a non-terminal."],
+    [FollowRuleType.END_OF_PRODUCTION, "A non-terminal at the end of a production."],
+]);
+////////////////////////////////////////////////////////////////////////////////
+//  HTML Helper Functions
+////////////////////////////////////////////////////////////////////////////////
+function deleteMyTable(myTableId) {
+    var element = document.getElementById(myTableId);
+    if (element != null)
+        element.parentNode.removeChild(element);
+}
+// Get the HTML Cell from a first or last table
+function getTableCell(tableId, rowLabel, columnLabel) {
+    return document.querySelector(`#${tableId}>[data-row="${rowLabel}"]>[data-column="${columnLabel}"]`);
+}
+// Set the string in the instruction field
+function setInstructionValue(value, clear = true) {
+    var instructions = document.getElementById(messageTableID);
+    instructionString = value;
+    if (clear) {
+        errorString = '';
+    }
+    instructions.textContent = [instructionString, errorString].join("\n");
+}
+// Set an Error value in the instruction field.
+function setErrorValue(value) {
+    var instructions = document.getElementById(messageTableID);
+    errorString = value;
+    instructions.textContent = [instructionString, errorString].join("\n");
+}
+// Represents the current state of the Production Table
+class ProductionTable {
+    constructor(parentID, grammar) {
+        this.tableID = productionTableID;
+        this.productions = new Array();
+        for (const [idx, rule] of grammar.rules.entries()) {
+            this.productions.push({
+                idx: idx,
+                rule: rule,
+                enabled: true,
+                color: HTMLColors.defaultColor
+            });
+        }
+        this.selectedProduction = null;
+        this.table = document.createElement("TABLE");
+        this.parentID = parentID;
+        this.render();
+    }
+    _setRowCallback(row, rowIdx, table) {
+        row.onclick = function () { table.buttonCallback(rowIdx); };
+        row.style.cursor = "pointer";
+    }
+    render() {
+        // Remove old table
+        deleteMyTable(this.tableID);
+        // Create a new one based on the current state
+        this.table = document.createElement("TABLE");
+        this.table.setAttribute("id", this.tableID);
+        this.table.style.border = "2px solid black";
+        this.table.style.backgroundColor = HTMLColors.defaultColor;
+        // Add Header
+        var header = document.createElement("caption");
+        header.textContent = "Production Table";
+        header.style.textAlign = "center";
+        header.style.fontSize = "large";
+        header.style.border = "2px solid black";
+        header.style.backgroundColor = HTMLColors.softGreyColor;
+        this.table.caption = header;
+        // Build Rows and columns
+        for (var y = 0; y < this.productions.length; y++) {
+            var prod = this.productions[y];
+            var newRow = document.createElement("TR");
+            if (prod.enabled) {
+                this._setRowCallback(newRow, y, this);
+            }
+            //     this.ButtonCallback(prod.idx);
+            // }};
+            newRow.setAttribute("id", prod.rule.left + " ::= " + prod.rule.right.join(""));
+            newRow.style.border = "1px solid black";
+            // Create index cell
+            var idxCell = document.createElement("TD");
+            idxCell.style.width = "24px";
+            idxCell.style.border = "1px solid black";
+            idxCell.style.color = "black";
+            idxCell.style.backgroundColor = HTMLColors.softGreyColor;
+            idxCell.textContent = y.toString();
+            newRow.appendChild(idxCell);
+            // Create Cell
+            var cell = document.createElement("TD");
+            newRow.appendChild(cell);
+            cell.style.width = "350px";
+            cell.style.border = "1px solid black";
+            cell.style.color = "black";
+            // Add production rule
+            cell.textContent = prod.rule.left + " ::= " + prod.rule.right.join("");
+            // Set the row color
+            newRow.style.backgroundColor = prod.color;
+            this.table.appendChild(newRow);
+        }
+        // Add the created table back
+        var parent = document.getElementById(this.parentID);
+        parent === null || parent === void 0 ? void 0 : parent.appendChild(this.table);
+    }
+    setProductionRowEnable(row, enable) {
+        this.productions[row].enabled = enable;
+        if (enable == true) {
+            this.productions[row].color = HTMLColors.defaultColor;
+            this.productions[row].enabled = true;
+        }
+        else {
+            this.productions[row].enabled = false;
+            this.productions[row].color = HTMLColors.disableColor;
+        }
+        if (this.selectedProduction == this.productions[row].idx) {
+            this.selectedProduction = null;
+        }
+    }
+    selectProductionRow(row) {
+        if (!this.productions[row].enabled) {
+            this.selectedProduction = null;
+            return false;
+        }
+        if (this.selectedProduction != null) {
+            const oldSelection = this.productions[this.selectedProduction];
+            if (oldSelection.enabled) {
+                oldSelection.color = HTMLColors.defaultColor;
+            }
+        }
+        this.selectedProduction = row;
+        this.productions[row].color = HTMLColors.highlightColor;
+        console.log(`Selected Production Table Row: ${row} `);
+        return true;
+    }
+    buttonCallback(row) {
+        var _a, _b, _c;
+        const prod = this.productions[row];
+        switch (currentStep) {
+            // Check if this rule directly produces epsilon
+            case Steps.ENTER_EPSILON:
+                if (prod.rule.right[0] == epsilon) {
+                    // This is a valid selection
+                    this.selectProductionRow(row);
+                    setInstructionValue("Now select the cell in the first table that corresponds with this non-terminal producing epsilon. ");
+                }
+                else {
+                    setInstructionValue("The Selected production does not directly produce epsilon! Try again.");
+                    // Reset the selected row
+                    if (this.selectedProduction != null) {
+                        this.productions[this.selectedProduction].color = HTMLColors.defaultColor;
+                        this.selectedProduction = null;
+                    }
+                }
+                break;
+            // Check if this rule in-directly produces epsilon
+            case Steps.ENTER_EPSILON_FROM_EPSILON:
+                // Check if the selected production rule can be epsilon via all
+                // its values
+                var indirectlyEpsilon = true;
+                for (var i = 0; i < prod.rule.right.length; i++) {
+                    var indirectEpsilonCol = getTableCell(firstTableID, prod.rule.right[i], epsilon);
+                    if (indirectEpsilonCol != null) {
+                        // Check if the value is set
+                        if (indirectEpsilonCol.textContent != ".") {
+                            // This letter can produce epsilon check the next
+                            continue;
+                        }
+                        else {
+                            indirectlyEpsilon = false;
+                            // Not indirectly producible for now, but could be in the future
+                            setInstructionValue("The Selected production rule does not indirectly produce epsilon currently! Try again.");
+                            // Reset the selected row
+                            if (this.selectedProduction != null) {
+                                this.productions[this.selectedProduction].color = HTMLColors.defaultColor;
+                                this.selectedProduction = null;
+                            }
+                        }
+                    }
+                    else {
+                        indirectlyEpsilon = false;
+                        // Not producible
+                        setInstructionValue("The Selected production rule does not indirectly produce epsilon! Try again.");
+                        // Reset the selected row
+                        if (this.selectedProduction != null) {
+                            this.productions[this.selectedProduction].color = HTMLColors.defaultColor;
+                            this.selectedProduction = null;
+                        }
+                    }
+                }
+                if (indirectlyEpsilon == true) {
+                    // Can be produced indirectly
+                    this.selectProductionRow(row);
+                    setInstructionValue("Now select the cell in the first table that corresponds with the rule producing epsilon.");
+                }
+                break;
+            // Find the first value for this production
+            case Steps.FIND_FIRSTS:
+                this.selectProductionRow(row);
+                // Check where this production rule should be placed
+                var instructions = new Array();
+                for (var i = 0; i < prod.rule.right.length; i++) {
+                    if (grammar.terminals.has(prod.rule.right[i])) {
+                        instructions.push(`First(${prod.rule.left}) ::= '${prod.rule.right[i]}'. So put a ${row} at the intersection of ${prod.rule.left} and ${prod.rule.right[i]} in the First Table.`);
+                        break;
+                    }
+                    else {
+                        instructions.push(`First(${prod.rule.left}) ::= 'First(${prod.rule.right[i]})'. So put a ${row} at the intersection of ${prod.rule.left} and First(${prod.rule.right[i]}) in the First Table.`);
+                        // Check if this is nullable
+                        var epsilonCell = getTableCell(firstTableID, prod.rule.right[i], epsilon);
+                        if ((epsilonCell === null || epsilonCell === void 0 ? void 0 : epsilonCell.textContent) != emptyCell) {
+                            if (prod.rule.right.length - 1 != i) {
+                                instructions.push(`Note that ${prod.rule.right[i]} is nullable, So we must also look at the next symbol in the production.`);
+                            }
+                        }
+                        else {
+                            break;
+                        }
+                    }
+                }
+                setInstructionValue(instructions.join("\n"));
+                break;
+            case Steps.FIND_FOLLOWS:
+                var validRow = false;
+                for (const symbol of prod.rule.right.values()) {
+                    if (grammar.nonTerminals.has(symbol)) {
+                        validRow = true;
+                        break;
+                    }
+                }
+                if (!validRow) {
+                    break;
+                }
+                // Select the row
+                this.selectProductionRow(row);
+                // Disable all rules to start with
+                for (const [key, value] of selectedProductionFollowCells.entries()) {
+                    followTable.rulesData[key] = false;
+                    selectedProductionFollowCells.set(key, new Set());
+                }
+                followTable.selectedRule = null;
+                // Fill out the follow table selections that need to be made
+                // for this production
+                for (const [idx, symbol] of prod.rule.right.entries()) {
+                    // Check if its a terminal
+                    if (grammar.terminals.has(symbol)) {
+                        // Nothing to do for a terminal
+                        continue;
+                    }
+                    // Check if this is the last symbol
+                    if (prod.rule.right.length <= idx + 1) {
+                        // Last Symbol, Need to add Follow(LHS)
+                        (_a = selectedProductionFollowCells.get(FollowRuleType.END_OF_PRODUCTION)) === null || _a === void 0 ? void 0 : _a.add({
+                            rowLabel: symbol,
+                            columnLabel: `Follow(${prod.rule.left})`
+                        });
+                        followTable.rulesData[FollowRuleType.END_OF_PRODUCTION] = true;
+                        console.log(`Adding rule END_OF_PRODUCTION: Row ${symbol} , Column Follow(${prod.rule.left})`);
+                        continue;
+                    }
+                    const followingSymbol = prod.rule.right[idx + 1];
+                    // Check if the following symbol is terminal
+                    if (grammar.terminals.has(followingSymbol)) {
+                        // Terminal follows, Add the terminal
+                        (_b = selectedProductionFollowCells.get(FollowRuleType.TERMINAL_FOLLOWS)) === null || _b === void 0 ? void 0 : _b.add({
+                            rowLabel: symbol,
+                            columnLabel: followingSymbol
+                        });
+                        followTable.rulesData[FollowRuleType.TERMINAL_FOLLOWS] = true;
+                        console.log(`Adding rule TERMINAL_FOLLOWS: Row ${symbol} , Column ${followingSymbol}`);
+                        continue;
+                    }
+                    ;
+                    // Check for a non-terminal
+                    if (grammar.nonTerminals.has(followingSymbol)) {
+                        // Non-Terminal follows, Add its First set
+                        (_c = selectedProductionFollowCells.get(FollowRuleType.NON_TERMINAL_FOLLOWS)) === null || _c === void 0 ? void 0 : _c.add({
+                            rowLabel: symbol,
+                            columnLabel: `First(${followingSymbol})`
+                        });
+                        followTable.rulesData[FollowRuleType.NON_TERMINAL_FOLLOWS] = true;
+                        console.log(`Adding rule NON_TERMINAL_FOLLOWS: Row ${symbol} , Column First(${followingSymbol})`);
+                        continue;
+                    }
+                }
+                // Update the instructions
+                setInstructionValue("Now select a rule in the Follow Rules table that applies to this production.");
+                followTable.render();
+                break;
+            default:
+                break;
+        }
+        this.render();
+        return null;
+    }
+}
+// Class for interacting with the first table
+class FirstTable {
+    constructor(grammar) {
+        this.parentID = firstTableDiv;
+        this.tableID = firstTableID;
+        this.columns = new Array();
+        this.rows = new Array();
+        this.table = document.createElement("TABLE");
+        grammar.nonTerminals.forEach((nonTerm) => {
+            this.rows.push(nonTerm);
+        });
+        grammar.terminals.forEach((term) => {
+            this.columns.push(term);
+        });
+        grammar.nonTerminals.forEach((value, key, map) => {
+            this.columns.push(`First(${value})`);
+        });
+        this.columns.push(epsilon);
+        this.tableData = new Map;
+        this.rows.forEach((row) => {
+            var newColumn = new Map();
+            this.columns.forEach((column) => {
+                newColumn.set(column, {
+                    color: HTMLColors.defaultColor,
+                    enabled: true,
+                    data: emptyCell,
+                    attributes: new Map()
+                });
+            });
+            this.tableData.set(row, newColumn);
+        });
+        this.render();
+    }
+    // Internal method for setting callback of cells
+    _setTableCellCallback(cell, table, rowLabel, columnLabel) {
+        cell.onclick = function () { table.cellCallback(rowLabel, columnLabel); };
+        cell.style.cursor = "pointer";
+    }
+    // Render the table
+    render() {
+        var _a;
+        // Remove old table
+        deleteMyTable(this.tableID);
+        // Create a new one based on the current state
+        this.table = document.createElement("TABLE");
+        this.table.setAttribute("id", this.tableID);
+        this.table.style.border = "2px solid black";
+        this.table.style.backgroundColor = HTMLColors.defaultColor;
+        // Add header
+        var header = document.createElement("caption");
+        header.textContent = "First Table";
+        header.style.textAlign = "center";
+        header.style.fontSize = "large";
+        header.style.border = "2px solid black";
+        header.style.backgroundColor = HTMLColors.softGreyColor;
+        this.table.caption = header;
+        // Build Rows
+        for (var r = 0; r < this.rows.length + 1; r++) {
+            var newRow = document.createElement("TR");
+            this.table.appendChild(newRow);
+            if (r == 0) {
+                newRow.setAttribute("data-row", "HeaderRow");
+            }
+            else {
+                newRow.setAttribute("data-row", this.rows[r - 1]);
+            }
+            for (var c = 0; c < this.columns.length + 1; c++) {
+                var cell = document.createElement("TD");
+                cell.style.color = "black";
+                newRow.appendChild(cell);
+                cell.style.width = "50px";
+                cell.style.border = "1px solid black";
+                // Check if this is the header row
+                if (r == 0) {
+                    // Set header elements
+                    if (c == 0) {
+                        cell.setAttribute("data-column", "RowLabelColumn");
+                        cell.textContent = "";
+                        cell.style.backgroundColor = HTMLColors.softGreyColor;
+                    }
+                    else {
+                        cell.setAttribute("data-column", this.columns[c - 1]);
+                        // Set the Column Headers
+                        cell.textContent = this.columns[c - 1];
+                        cell.style.backgroundColor = HTMLColors.softGreyColor;
+                    }
+                }
+                else {
+                    if (c == 0) {
+                        // Set Row labels
+                        cell.setAttribute("data-column", "RowLabelColumn");
+                        cell.textContent = this.rows[r - 1];
+                        cell.style.backgroundColor = HTMLColors.softGreyColor;
+                    }
+                    else {
+                        cell.parentNode;
+                        // Build first table cell locations
+                        cell.setAttribute("data-column", this.columns[c - 1]);
+                        var cellData = (_a = this.tableData.get(this.rows[r - 1])) === null || _a === void 0 ? void 0 : _a.get(this.columns[c - 1]);
+                        if (cellData == null) {
+                            cellData = {
+                                color: HTMLColors.defaultColor,
+                                enabled: true,
+                                data: emptyCell,
+                                attributes: new Map()
+                            };
+                        }
+                        cell.style.backgroundColor = cellData.color;
+                        cell.textContent = cellData.data;
+                        // Add cell attributes
+                        for (const [key, value] of cellData.attributes.entries()) {
+                            cell.setAttribute(key, value);
+                        }
+                        if (cellData.enabled) {
+                            // Add callback
+                            this._setTableCellCallback(cell, this, this.rows[r - 1], this.columns[c - 1]);
+                        }
+                    }
+                }
+            }
+        }
+        var parent = document.getElementById(this.parentID);
+        parent === null || parent === void 0 ? void 0 : parent.appendChild(this.table);
+    }
+    setCellEnable(rowLabel, columnLabel, enable) {
+        var _a, _b;
+        var cellData = (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.get(columnLabel);
+        if (cellData == null) {
+            cellData = {
+                color: HTMLColors.defaultColor,
+                enabled: true,
+                data: emptyCell,
+                attributes: new Map()
+            };
+        }
+        cellData.enabled = enable;
+        (_b = this.tableData.get(rowLabel)) === null || _b === void 0 ? void 0 : _b.set(columnLabel, cellData);
+    }
+    setCellColor(rowLabel, columnLabel, color) {
+        var _a, _b;
+        var cellData = (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.get(columnLabel);
+        if (cellData == null) {
+            cellData = {
+                color: HTMLColors.defaultColor,
+                enabled: true,
+                data: emptyCell,
+                attributes: new Map()
+            };
+        }
+        cellData.color = color;
+        (_b = this.tableData.get(rowLabel)) === null || _b === void 0 ? void 0 : _b.set(columnLabel, cellData);
+    }
+    disableAllCells() {
+        var _a;
+        for (const [rowKey, columns] of this.tableData.entries()) {
+            for (const [columnKey, cell] of columns.entries()) {
+                cell.enabled = false;
+                (_a = this.tableData.get(rowKey)) === null || _a === void 0 ? void 0 : _a.set(columnKey, cell);
+            }
+        }
+    }
+    colorAllCells(color) {
+        var _a;
+        for (const [rowKey, columns] of this.tableData.entries()) {
+            for (const [columnKey, cell] of columns.entries()) {
+                cell.color = color;
+                (_a = this.tableData.get(rowKey)) === null || _a === void 0 ? void 0 : _a.set(columnKey, cell);
+            }
+        }
+    }
+    setCellValue(rowLabel, columnLabel, data) {
+        var _a, _b;
+        var cellData = (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.get(columnLabel);
+        if (cellData == null) {
+            cellData = {
+                color: HTMLColors.defaultColor,
+                enabled: true,
+                data: emptyCell,
+                attributes: new Map()
+            };
+        }
+        cellData.data = data;
+        (_b = this.tableData.get(rowLabel)) === null || _b === void 0 ? void 0 : _b.set(columnLabel, cellData);
+    }
+    setCell(rowLabel, columnLabel, cellData) {
+        var _a;
+        (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.set(columnLabel, cellData);
+    }
+    getCell(rowLabel, columnLabel) {
+        const row = this.tableData.get(rowLabel);
+        if (row == null) {
+            return null;
+        }
+        const cell = row.get(columnLabel);
+        if (cell == null) {
+            return null;
+        }
+        return cell;
+    }
+    // FirstTable cell Callback
+    cellCallback(rowLabel, columnLabel) {
+        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var cell = getTableCell(this.tableID, rowLabel, columnLabel);
+        var selectedCellData = this.getCell(rowLabel, columnLabel);
+        if (cell == null) {
+            return;
+        }
+        switch (currentStep) {
+            case Steps.ENTER_EPSILON:
+                // Check that this cell matches the selected production rule.
+                if (productionTable.selectedProduction == null) {
+                    // No production selected just return
+                    return;
+                }
+                // Check that the selected production rule's left side matches
+                // the row label
+                var selected_prod = productionTable.productions[productionTable.selectedProduction];
+                if (selected_prod.rule.left == rowLabel) {
+                    // Correct row, Check that this is the epsilon column
+                    if (columnLabel == epsilon) {
+                        // Correct choice, place the choice index in the cell
+                        var cellData = (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.get(columnLabel);
+                        if (cellData == null) {
+                            cellData = {
+                                color: HTMLColors.defaultColor,
+                                enabled: true,
+                                data: emptyCell,
+                                attributes: new Map()
+                            };
+                        }
+                        cellData.data = productionTable.selectedProduction.toString();
+                        (_b = this.tableData.get(rowLabel)) === null || _b === void 0 ? void 0 : _b.set(columnLabel, cellData);
+                        this.render();
+                        checkProgress();
+                    }
+                    else {
+                        // Not the epsilon column
+                        setInstructionValue("The production rule should be placed in the epsilon column!");
+                    }
+                }
+                else {
+                    // Not the correct row
+                    setInstructionValue(`The production rule should be placed in the ${selected_prod.rule.left} row!`);
+                }
+                break;
+            case Steps.ENTER_EPSILON_FROM_EPSILON:
+                // Check that this cell matches the selected production rule.
+                if (productionTable.selectedProduction == null) {
+                    // No production selected just return
+                    return;
+                }
+                // Check that the selected production rule's left side matches
+                // the row label
+                var selected_prod = productionTable.productions[productionTable.selectedProduction];
+                if (selected_prod.rule.left == rowLabel) {
+                    // Correct row, Check that this is the epsilon column
+                    if (columnLabel == epsilon) {
+                        // Correct choice, place the choice index in the cell
+                        var cellData = (_c = this.tableData.get(rowLabel)) === null || _c === void 0 ? void 0 : _c.get(columnLabel);
+                        if (cellData == null) {
+                            cellData = {
+                                color: HTMLColors.defaultColor,
+                                enabled: true,
+                                data: emptyCell,
+                                attributes: new Map()
+                            };
+                        }
+                        cellData.data = productionTable.selectedProduction.toString();
+                        (_d = this.tableData.get(rowLabel)) === null || _d === void 0 ? void 0 : _d.set(columnLabel, cellData);
+                        this.render();
+                        checkProgress();
+                    }
+                    else {
+                        // Not the epsilon column
+                        setInstructionValue("The production rule should be placed in the epsilon column!");
+                    }
+                }
+                else {
+                    // Not the correct row
+                    setInstructionValue(`The production rule should be placed in the ${selected_prod.rule.left} row!`);
+                }
+                break;
+            case Steps.FIND_FIRSTS:
+                // Check that this cell matches the selected production rule.
+                if (productionTable.selectedProduction == null) {
+                    // No production selected just return
+                    return;
+                }
+                const prod = productionTable.productions[productionTable.selectedProduction];
+                // Check that this is the correct row
+                if (prod.rule.left != rowLabel) {
+                    // Not the correct row
+                    setErrorValue(`The production rule should be placed in the ${prod.rule.left} row!`);
+                }
+                else {
+                    var stringComplete = false;
+                    for (var i = 0; i < prod.rule.right.length; i++) {
+                        var currentSymbol = prod.rule.right[i];
+                        if (grammar.terminals.has(currentSymbol)) {
+                            if (columnLabel == currentSymbol) {
+                                // We should place the symbol
+                                var cellData = (_e = this.tableData.get(rowLabel)) === null || _e === void 0 ? void 0 : _e.get(columnLabel);
+                                if (cellData == null) {
+                                    cellData = {
+                                        color: HTMLColors.defaultColor,
+                                        enabled: true,
+                                        data: emptyCell,
+                                        attributes: new Map()
+                                    };
+                                }
+                                cellData.data = productionTable.selectedProduction.toString();
+                                (_f = this.tableData.get(rowLabel)) === null || _f === void 0 ? void 0 : _f.set(columnLabel, cellData);
+                                this.render();
+                                checkProgress();
+                                setErrorValue("");
+                                stringComplete = true;
+                                break;
+                            }
+                        }
+                        else {
+                            var correctColumn = `First(${currentSymbol})`;
+                            if (correctColumn == columnLabel) {
+                                // We should place the symbol
+                                var cellData = (_g = this.tableData.get(rowLabel)) === null || _g === void 0 ? void 0 : _g.get(columnLabel);
+                                if (cellData == null) {
+                                    cellData = {
+                                        color: HTMLColors.defaultColor,
+                                        enabled: true,
+                                        data: emptyCell,
+                                        attributes: new Map()
+                                    };
+                                }
+                                cellData.data = productionTable.selectedProduction.toString();
+                                (_h = this.tableData.get(rowLabel)) === null || _h === void 0 ? void 0 : _h.set(columnLabel, cellData);
+                                this.render();
+                                checkProgress();
+                                stringComplete = true;
+                                setErrorValue("");
+                                break;
+                            }
+                            else {
+                                // Only continue if the symbol is nullable
+                                var epsilonCell = getTableCell(firstTableID, currentSymbol, epsilon);
+                                if ((epsilonCell === null || epsilonCell === void 0 ? void 0 : epsilonCell.textContent) != emptyCell) {
+                                    continue;
+                                }
+                                else {
+                                    setErrorValue(`Incorrect column! Try again`);
+                                    stringComplete = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (!stringComplete) {
+                        setErrorValue(`Incorrect column! Try again`);
+                        break;
+                    }
+                }
+                break;
+            case Steps.FIND_FIRSTS_COMPUTED:
+                if (selectedCellData == null) {
+                    return;
+                }
+                // Check if this a a value that needs to be simplified or one
+                // that is a production of the backfill simplification
+                if (selectedCellData.attributes.has(CellAttr.needsSimplified)) {
+                    // Check what values this First Column can be simplified into
+                    const columnSymbol = columnLabel.charAt(6);
+                    const childFirstSet = grammar.firstSets.get(columnSymbol);
+                    if (childFirstSet == null) {
+                        break;
+                    }
+                    // Highlight and enable each cell that can be simplified
+                    // into that isn't already simplified
+                    var childCellCols = new Array;
+                    for (const childSymbol of childFirstSet.values()) {
+                        // Check if this value is already filled
+                        var childCellData = this.getCell(rowLabel, childSymbol);
+                        if (childCellData == null) {
+                            continue;
+                        }
+                        if (childCellData.data == emptyCell) {
+                            // Need to be filled, Highlight the cell, set attrs
+                            childCellData.color = HTMLColors.highlightColor;
+                            childCellData.enabled = true;
+                            childCellCols.push(childSymbol);
+                            childCellData.attributes.set(CellAttr.needsFilled, selectedCellData.data);
+                            var currentParentCols = childCellData.attributes.get(CellAttr.parentCellCol);
+                            if (currentParentCols == null) {
+                                currentParentCols = "[]";
+                            }
+                            var currentParentColsArray = JSON.parse(currentParentCols);
+                            currentParentColsArray.push(columnLabel);
+                            childCellData.attributes.set(CellAttr.parentCellCol, JSON.stringify(currentParentColsArray));
+                            this.setCell(rowLabel, childSymbol, childCellData);
+                        }
+                    }
+                    // Mark the list of child cells that need to be filled for this cell
+                    // to be complete
+                    selectedCellData.attributes.set(CellAttr.childCellCol, JSON.stringify(childCellCols));
+                    this.setCell(rowLabel, columnLabel, selectedCellData);
+                    // Fill out the instructions
+                    setInstructionValue([
+                        `For ${columnLabel}: Fill in any values in ${rowLabel} row where they are also filled in `,
+                        `the ${columnSymbol} row. We place a ${selectedCellData.data} `,
+                        `in the cell to show that production ${selectedCellData.data} can produce that value as its first value.`
+                    ].join(""));
+                }
+                else if (selectedCellData.attributes.has(CellAttr.needsFilled)) {
+                    // Selected cell needs filled, Fill the cell
+                    const fillData = selectedCellData.attributes.get(CellAttr.needsFilled);
+                    if (fillData == null) {
+                        break;
+                    }
+                    selectedCellData.data = fillData;
+                    selectedCellData.color = HTMLColors.disableColor;
+                    selectedCellData.attributes.delete(CellAttr.needsFilled);
+                    this.setCell(rowLabel, columnLabel, selectedCellData);
+                    // Check if the parent cell is done
+                    const parentCellCols = JSON.parse(selectedCellData.attributes.get(CellAttr.parentCellCol));
+                    for (var parentCellCol of parentCellCols.values()) {
+                        var parentCell = this.getCell(rowLabel, parentCellCol);
+                        if (parentCell == null) {
+                            break;
+                        }
+                        const childJson = parentCell.attributes.get(CellAttr.childCellCol);
+                        if (childJson == null) {
+                            break;
+                        }
+                        var childCells = JSON.parse(childJson);
+                        childCells = childCells.filter(childCol => childCol !== columnLabel);
+                        if (childCells.length == 0) {
+                            // Cell complete, Remove child attribute, disable parent
+                            parentCell.attributes.delete(CellAttr.childCellCol);
+                            parentCell.attributes.delete(CellAttr.needsSimplified);
+                            parentCell.color = HTMLColors.disableColor;
+                            parentCell.enabled = false;
+                            parentCell.data = emptyCell;
+                            // Update the instruction box
+                            setInstructionValue("Good Job, now select another cell highlighted in red.");
+                        }
+                        else {
+                            // Remove this cell from the list of children
+                            parentCell.attributes.set(CellAttr.childCellCol, JSON.stringify(childCells));
+                        }
+                        this.setCell(rowLabel, parentCellCol, parentCell);
+                    }
+                    this.render();
+                }
+                checkProgress();
+                break;
+            case Steps.FIND_FOLLOWS_COMPUTED_FIRSTS:
+                // Verify that a follow table cell is selected
+                if (followTable.selectedCell == null) {
+                    break;
+                }
+                // Get the row to place the value in the follow table to
+                const followRow = followTable.selectedCell.rowLabel;
+                // Check if this is an epsilon column
+                if (columnLabel == epsilon) {
+                    // Nullable, need place to place in the follow column.
+                    setInstructionValue(`Place an X in the Follow(${rowLabel}) column.`);
+                    // Highlight and enable the cell in the follow table
+                    var followCell = followTable.getCell(followRow, `Follow(${rowLabel})`);
+                    if (followCell == null) {
+                        break;
+                    }
+                    followCell.color = HTMLColors.highlightColor;
+                    followCell.enabled = true;
+                    followCell.attributes.set("data-FirstParentRow", rowLabel);
+                    followTable.setCell(followRow, `Follow(${rowLabel})`, followCell);
+                }
+                else {
+                    setInstructionValue(`Place X in the follow ${columnLabel} column.`);
+                    // Highlight and enable the cell in the follow table
+                    var followCell = followTable.getCell(followRow, columnLabel);
+                    if (followCell == null) {
+                        break;
+                    }
+                    followCell.color = HTMLColors.highlightColor;
+                    followCell.enabled = true;
+                    followCell.attributes.set("data-FirstParentRow", rowLabel);
+                    followTable.setCell(followRow, columnLabel, followCell);
+                }
+                followTable.render();
+                firstTable.render();
+                break;
+            default:
+                break;
+        }
+    }
+}
+class FollowTable {
+    constructor(grammar) {
+        this.renderRules = true;
+        this.selectedCell = null;
+        this.solvingFollowSet = new Set();
+        this.parentID = followTableDiv;
+        this.tableID = followTableID;
+        this.hidden = false;
+        this.columns = new Array();
+        this.rows = new Array();
+        this.table = document.createElement("TABLE");
+        this.rulesTable = document.createElement("TABLE");
+        this.selectedRule = null;
+        this.rulesData = new Array(false, false, false);
+        grammar.nonTerminals.forEach((nonTerm) => {
+            this.rows.push(nonTerm);
+        });
+        grammar.terminals.forEach((term) => {
+            this.columns.push(term);
+        });
+        grammar.nonTerminals.forEach((value, key, map) => {
+            this.columns.push(`First(${value})`);
+        });
+        grammar.nonTerminals.forEach((value, key, map) => {
+            this.columns.push(`Follow(${value})`);
+        });
+        this.tableData = new Map;
+        this.rows.forEach((row) => {
+            var newColumn = new Map();
+            this.columns.forEach((column) => {
+                newColumn.set(column, {
+                    color: HTMLColors.defaultColor,
+                    enabled: true,
+                    data: emptyCell,
+                    attributes: new Map()
+                });
+            });
+            this.tableData.set(row, newColumn);
+        });
+        // By default set S,$, and add it to the follow set
+        this.setCellValue("S", "$", "X");
+        grammar.followSets.set("S", new Set("$"));
+        this.render();
+    }
+    setTableHidden(hidden) {
+        this.hidden = hidden;
+    }
+    // Internal method for setting callback of cells
+    _setTableCellCallback(cell, table, rowLabel, columnLabel) {
+        cell.onclick = function () { table.cellCallback(rowLabel, columnLabel); };
+        cell.style.cursor = "pointer";
+    }
+    // Internal method for setting callback of the rule table rows
+    _setRuleTableCallback(row, table, ruleId) {
+        row.onclick = function () { table.ruleRowCallback(ruleId); };
+        row.style.cursor = "pointer";
+    }
+    // Render the table
+    render() {
+        var _a;
+        // Remove old table
+        deleteMyTable(this.tableID);
+        deleteMyTable(followRulesID);
+        if (this.hidden) {
+            return;
+        }
+        // Create a new one based on the current state
+        this.table = document.createElement("TABLE");
+        this.table.setAttribute("id", this.tableID);
+        this.table.style.border = "2px solid black";
+        this.table.style.backgroundColor = HTMLColors.defaultColor;
+        // Add header
+        var header = document.createElement("caption");
+        header.textContent = "Follow Table";
+        header.style.textAlign = "center";
+        header.style.fontSize = "large";
+        header.style.border = "2px solid black";
+        header.style.backgroundColor = HTMLColors.softGreyColor;
+        this.table.caption = header;
+        // Build Rows
+        for (var r = 0; r < this.rows.length + 1; r++) {
+            var newRow = document.createElement("TR");
+            this.table.appendChild(newRow);
+            if (r == 0) {
+                newRow.setAttribute("data-row", "HeaderRow");
+            }
+            else {
+                newRow.setAttribute("data-row", this.rows[r - 1]);
+            }
+            for (var c = 0; c < this.columns.length + 1; c++) {
+                var cell = document.createElement("TD");
+                cell.style.color = "black";
+                newRow.appendChild(cell);
+                cell.style.width = "50px";
+                cell.style.border = "1px solid black";
+                // Check if this is the header row
+                if (r == 0) {
+                    // Set header elements
+                    if (c == 0) {
+                        cell.setAttribute("data-column", "RowLabelColumn");
+                        cell.textContent = "";
+                        cell.style.backgroundColor = HTMLColors.softGreyColor;
+                    }
+                    else {
+                        cell.setAttribute("data-column", this.columns[c - 1]);
+                        // Set the Column Headers
+                        cell.textContent = this.columns[c - 1];
+                        cell.style.backgroundColor = HTMLColors.softGreyColor;
+                    }
+                }
+                else {
+                    if (c == 0) {
+                        // Set Row labels
+                        cell.setAttribute("data-column", "RowLabelColumn");
+                        cell.textContent = this.rows[r - 1];
+                        cell.style.backgroundColor = HTMLColors.softGreyColor;
+                    }
+                    else {
+                        cell.parentNode;
+                        // Build first table cell locations
+                        cell.setAttribute("data-column", this.columns[c - 1]);
+                        var cellData = (_a = this.tableData.get(this.rows[r - 1])) === null || _a === void 0 ? void 0 : _a.get(this.columns[c - 1]);
+                        if (cellData == null) {
+                            cellData = {
+                                color: HTMLColors.defaultColor,
+                                enabled: true,
+                                data: emptyCell,
+                                attributes: new Map()
+                            };
+                        }
+                        cell.style.backgroundColor = cellData.color;
+                        cell.textContent = cellData.data;
+                        // Add cell attributes
+                        for (const [key, value] of cellData.attributes.entries()) {
+                            cell.setAttribute(key, value);
+                        }
+                        if (cellData.enabled) {
+                            // Add callback
+                            this._setTableCellCallback(cell, this, this.rows[r - 1], this.columns[c - 1]);
+                        }
+                    }
+                }
+            }
+        }
+        // Attach the tables
+        var parent = document.getElementById(this.parentID);
+        parent === null || parent === void 0 ? void 0 : parent.appendChild(this.table);
+        // Check if we should render the rules table
+        if (this.renderRules) {
+            // Build a Rules table
+            this.rulesTable = document.createElement("TABLE");
+            this.rulesTable.setAttribute("id", followRulesID);
+            this.rulesTable.style.border = "2px solid black";
+            this.rulesTable.style.backgroundColor = HTMLColors.defaultColor;
+            // Add header
+            var rulesHeader = document.createElement("caption");
+            rulesHeader.textContent = "Follow Rules";
+            rulesHeader.style.textAlign = "center";
+            rulesHeader.style.fontSize = "large";
+            rulesHeader.style.border = "2px solid black";
+            rulesHeader.style.backgroundColor = HTMLColors.softGreyColor;
+            this.rulesTable.caption = rulesHeader;
+            // Build the rules
+            for (var r = 0; r < 3; r++) {
+                var newRow = document.createElement("TR");
+                var rule = FollowRules.get(r);
+                if (rule == null) {
+                    continue;
+                }
+                newRow.setAttribute("id", r.toString());
+                newRow.style.border = "1px solid black";
+                // Create index cell
+                var idxCell = document.createElement("TD");
+                idxCell.style.width = "24px";
+                idxCell.style.border = "1px solid black";
+                idxCell.style.color = "black";
+                idxCell.style.backgroundColor = HTMLColors.softGreyColor;
+                idxCell.textContent = r.toString();
+                newRow.appendChild(idxCell);
+                // Create Cell
+                var cell = document.createElement("TD");
+                newRow.appendChild(cell);
+                cell.style.width = "350px";
+                cell.style.border = "1px solid black";
+                cell.style.color = "black";
+                // Add rule
+                cell.textContent = rule;
+                // Set the row color
+                if (this.selectedRule == r) {
+                    newRow.style.backgroundColor = HTMLColors.highlightColor;
+                    // Set the callback
+                    this._setRuleTableCallback(newRow, this, r);
+                }
+                else if (this.rulesData[r]) {
+                    newRow.style.backgroundColor = HTMLColors.defaultColor;
+                    // Set the callback
+                    this._setRuleTableCallback(newRow, this, r);
+                }
+                else {
+                    newRow.style.backgroundColor = HTMLColors.disableColor;
+                }
+                this.rulesTable.appendChild(newRow);
+            }
+            parent === null || parent === void 0 ? void 0 : parent.appendChild(this.rulesTable);
+        }
+    }
+    setCellEnable(rowLabel, columnLabel, enable) {
+        var _a, _b;
+        var cellData = (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.get(columnLabel);
+        if (cellData == null) {
+            cellData = {
+                color: HTMLColors.defaultColor,
+                enabled: true,
+                data: emptyCell,
+                attributes: new Map()
+            };
+        }
+        cellData.enabled = enable;
+        (_b = this.tableData.get(rowLabel)) === null || _b === void 0 ? void 0 : _b.set(columnLabel, cellData);
+    }
+    setCellColor(rowLabel, columnLabel, color) {
+        var _a, _b;
+        var cellData = (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.get(columnLabel);
+        if (cellData == null) {
+            cellData = {
+                color: HTMLColors.defaultColor,
+                enabled: true,
+                data: emptyCell,
+                attributes: new Map()
+            };
+        }
+        cellData.color = color;
+        (_b = this.tableData.get(rowLabel)) === null || _b === void 0 ? void 0 : _b.set(columnLabel, cellData);
+    }
+    disableAllCells() {
+        var _a;
+        for (const [rowKey, columns] of this.tableData.entries()) {
+            for (const [columnKey, cell] of columns.entries()) {
+                cell.enabled = false;
+                (_a = this.tableData.get(rowKey)) === null || _a === void 0 ? void 0 : _a.set(columnKey, cell);
+            }
+        }
+    }
+    colorAllCells(color) {
+        var _a;
+        for (const [rowKey, columns] of this.tableData.entries()) {
+            for (const [columnKey, cell] of columns.entries()) {
+                cell.color = color;
+                (_a = this.tableData.get(rowKey)) === null || _a === void 0 ? void 0 : _a.set(columnKey, cell);
+            }
+        }
+    }
+    setCellValue(rowLabel, columnLabel, data) {
+        var _a, _b;
+        var cellData = (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.get(columnLabel);
+        if (cellData == null) {
+            cellData = {
+                color: HTMLColors.defaultColor,
+                enabled: true,
+                data: emptyCell,
+                attributes: new Map()
+            };
+        }
+        cellData.data = data;
+        (_b = this.tableData.get(rowLabel)) === null || _b === void 0 ? void 0 : _b.set(columnLabel, cellData);
+    }
+    setCell(rowLabel, columnLabel, cellData) {
+        var _a;
+        (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.set(columnLabel, cellData);
+    }
+    getCell(rowLabel, columnLabel) {
+        const row = this.tableData.get(rowLabel);
+        if (row == null) {
+            return null;
+        }
+        const cell = row.get(columnLabel);
+        if (cell == null) {
+            return null;
+        }
+        return cell;
+    }
+    cellCallback(rowLabel, columnLabel) {
+        var selectedCellData = this.getCell(rowLabel, columnLabel);
+        if (selectedCellData == null) {
+            return;
+        }
+        switch (currentStep) {
+            case Steps.FIND_FOLLOWS:
+                if (this.selectedRule == null) {
+                    setErrorValue("You must select a Production and Rule first!");
+                    return;
+                }
+                const selectedProductionCells = selectedProductionFollowCells.get(this.selectedRule);
+                if (selectedProductionCells == null) {
+                    break;
+                }
+                var correctSelection = false;
+                for (var validCell of selectedProductionCells.values()) {
+                    if (validCell.columnLabel == columnLabel && validCell.rowLabel == rowLabel) {
+                        correctSelection = true;
+                        // Remove it from the list of cells we need
+                        selectedProductionCells.delete(validCell);
+                        break;
+                    }
+                }
+                // Check if this cell is needed in this step
+                if (!correctSelection) {
+                    // Invalid Selection
+                    setErrorValue("Incorrect cell, Try again.");
+                    break;
+                }
+                // Update the cell
+                selectedCellData.data = "X";
+                this.setCell(rowLabel, columnLabel, selectedCellData);
+                // Add it to the follow set
+                var followSet = grammar.followSets.get(rowLabel);
+                if (followSet == null) {
+                    followSet = new Set();
+                }
+                followSet.add(columnLabel);
+                grammar.followSets.set(rowLabel, followSet);
+                break;
+            case Steps.FIND_FOLLOWS_COMPUTED_FIRSTS:
+                // Check if this is a parent cell or child cell
+                if (selectedCellData.attributes.has('data-ParentCell')) {
+                    // Check if we are already solving a First() column
+                    if (this.selectedCell != null) {
+                        break;
+                    }
+                    // Select this cell
+                    this.selectedCell = { rowLabel: rowLabel, columnLabel: columnLabel };
+                    // Clear the current solving set
+                    this.solvingFollowSet = new Set();
+                    // Clear the highlighted cells in the first table
+                    firstTable.colorAllCells(HTMLColors.disableColor);
+                    firstTable.disableAllCells();
+                    // Find which first table values need to be set in the follow table
+                    const firstRowKey = columnLabel.charAt(6);
+                    for (const firstColumnKey of firstTable.columns.values()) {
+                        var firstCell = firstTable.getCell(firstRowKey, firstColumnKey);
+                        if (firstCell == null) {
+                            continue;
+                        }
+                        // Check if this cell is set
+                        if (firstCell.data == emptyCell) {
+                            continue;
+                        }
+                        var followChildColumnKey = "";
+                        // Get the cell in the follow table that should be set by this cell
+                        if (firstColumnKey == epsilon) {
+                            // The first set can be epsilon, so we need the follow of this value
+                            followChildColumnKey = `Follow(${firstRowKey})`;
+                        }
+                        else {
+                            followChildColumnKey = firstColumnKey;
+                        }
+                        var followCell = followTable.getCell(rowLabel, followChildColumnKey);
+                        if (followCell == null) {
+                            continue;
+                        }
+                        // Check if its is already set
+                        if (followCell.data != emptyCell) {
+                            continue;
+                        }
+                        // Enable and color the first table cell
+                        firstTable.setCellColor(firstRowKey, firstColumnKey, HTMLColors.highlightColor);
+                        firstTable.setCellEnable(firstRowKey, firstColumnKey, true);
+                        // Add it to the solving follow set
+                        this.solvingFollowSet.add(followChildColumnKey);
+                    }
+                }
+                // Must be a child cell
+                else {
+                    // Disable, Color, and place an X in the cell
+                    followTable.setCellValue(rowLabel, columnLabel, "X");
+                    followTable.setCellColor(rowLabel, columnLabel, HTMLColors.disableColor);
+                    followTable.setCellEnable(rowLabel, columnLabel, false);
+                    // Disable and color the corresponding first table cell
+                    const firstParentRow = selectedCellData.attributes.get("data-FirstParentRow");
+                    if (firstParentRow == null) {
+                        break;
+                    }
+                    var firstParentCol = columnLabel;
+                    if (!grammar.terminals.has(firstParentCol)) {
+                        // Follow() column, first table parent cell is the epsilon column
+                        firstParentCol = epsilon;
+                    }
+                    firstTable.setCellColor(firstParentRow, firstParentCol, HTMLColors.disableColor);
+                    firstTable.setCellEnable(firstParentRow, firstParentCol, false);
+                    // Remove it from the solving follow set and add it to grammar follow set
+                    this.solvingFollowSet.delete(columnLabel);
+                    var currentFollowSet = grammar.followSets.get(rowLabel);
+                    if (currentFollowSet == null) {
+                        currentFollowSet = new Set();
+                    }
+                    currentFollowSet.add(columnLabel);
+                    // Check if we are done with the current selection
+                    if (this.solvingFollowSet.size == 0) {
+                        // Clear the selected cell
+                        if (this.selectedCell == null) {
+                            break;
+                        }
+                        var currentSelectedCell = followTable.getCell(this.selectedCell.rowLabel, this.selectedCell.columnLabel);
+                        if (currentSelectedCell == null) {
+                            break;
+                        }
+                        currentSelectedCell.color = HTMLColors.disableColor;
+                        currentSelectedCell.data = emptyCell;
+                        currentSelectedCell.enabled = false;
+                        currentSelectedCell.attributes.delete("data-FirstParentRow");
+                        // Remove the First() from the follow set
+                        currentFollowSet.delete(`First(${firstParentRow})`);
+                        this.selectedCell = null;
+                    }
+                }
+                break;
+            case Steps.FIND_FOLLOWS_COMPUTED_FOLLOWS:
+                // Check if this is a parent cell or child cell
+                if (selectedCellData.attributes.has('data-ParentCell')) {
+                    if (this.selectedCell != null) {
+                        // Clear out any already selected cell
+                        for (const oldColumn of this.solvingFollowSet.values()) {
+                            this.setCellEnable(this.selectedCell.rowLabel, oldColumn, false);
+                            this.setCellColor(this.selectedCell.rowLabel, oldColumn, HTMLColors.disableColor);
+                        }
+                        this.solvingFollowSet.clear();
+                    }
+                    this.selectedCell = { rowLabel, columnLabel };
+                    // Get the row that corresponds to this Follow() value
+                    const followValueRowKey = columnLabel.charAt(7);
+                    // Check for a Row that follows itself
+                    if (followValueRowKey == rowLabel) {
+                        // Row that follows itself, Effectively already solved
+                        setInstructionValue(`A Row that Follows itself is already solved.`);
+                        // Clear the selected cell
+                        this.selectedCell == null;
+                        var currentSelectedCell = followTable.getCell(this.selectedCell.rowLabel, this.selectedCell.columnLabel);
+                        if (currentSelectedCell == null) {
+                            break;
+                        }
+                        currentSelectedCell.color = HTMLColors.disableColor;
+                        currentSelectedCell.data = emptyCell;
+                        currentSelectedCell.enabled = false;
+                        currentSelectedCell.attributes.delete("data-ParentCell");
+                        break;
+                    }
+                    const followValueRow = this.tableData.get(followValueRowKey);
+                    if (followValueRow == null) {
+                        break;
+                    }
+                    var allAlreadyFilled = true;
+                    // Get the columns that are set in that row
+                    for (const [followValueColumnKey, c] of followValueRow.entries()) {
+                        if (c.data != emptyCell) {
+                            // Check if that cell is already completed
+                            var followSet = grammar.followSets.get(rowLabel);
+                            if (followSet == null) {
+                                continue;
+                            }
+                            if (followSet.has(followValueColumnKey)) {
+                                // Already done, continue
+                                continue;
+                            }
+                            // Highlight and Enable the corresponding cell
+                            this.setCellColor(rowLabel, followValueColumnKey, HTMLColors.highlightColor);
+                            this.setCellEnable(rowLabel, followValueColumnKey, true);
+                            // Add it to the current solve set
+                            this.solvingFollowSet.add(followValueColumnKey);
+                            allAlreadyFilled = false;
+                            setInstructionValue(`Fill in the values in the ${rowLabel} row where they are also set in the ${followValueRowKey} row`);
+                        }
+                    }
+                    if (allAlreadyFilled == true) {
+                        // All the values that processing this follow would fill
+                        // already are so just continue.
+                        setInstructionValue("Select a Follow table cell with a Follow() column to simplify.");
+                        // Clear the selected cell
+                        this.selectedCell == null;
+                        var currentSelectedCell = followTable.getCell(this.selectedCell.rowLabel, this.selectedCell.columnLabel);
+                        if (currentSelectedCell == null) {
+                            break;
+                        }
+                        currentSelectedCell.color = HTMLColors.disableColor;
+                        currentSelectedCell.data = emptyCell;
+                        currentSelectedCell.enabled = false;
+                        currentSelectedCell.attributes.delete("data-ParentCell");
+                    }
+                }
+                // Must be a child cell
+                else {
+                    // Disable, Color, and place an X in the cell
+                    followTable.setCellValue(rowLabel, columnLabel, "X");
+                    followTable.setCellColor(rowLabel, columnLabel, HTMLColors.disableColor);
+                    followTable.setCellEnable(rowLabel, columnLabel, false);
+                    // Remove it from the solving follow set and add it to grammar follow set
+                    this.solvingFollowSet.delete(columnLabel);
+                    var currentFollowSet = grammar.followSets.get(rowLabel);
+                    if (currentFollowSet == null) {
+                        currentFollowSet = new Set();
+                    }
+                    currentFollowSet.add(columnLabel);
+                    // Check if we are done with the current selection
+                    if (this.solvingFollowSet.size == 0) {
+                        // Clear the selected cell
+                        if (this.selectedCell == null) {
+                            break;
+                        }
+                        var currentSelectedCell = followTable.getCell(this.selectedCell.rowLabel, this.selectedCell.columnLabel);
+                        if (currentSelectedCell == null) {
+                            break;
+                        }
+                        currentSelectedCell.color = HTMLColors.disableColor;
+                        currentSelectedCell.data = emptyCell;
+                        currentSelectedCell.enabled = false;
+                        currentSelectedCell.attributes.delete("data-ParentCell");
+                        // Remove the Follow() from the follow set
+                        currentFollowSet.delete(`Follow(${rowLabel})`);
+                        this.selectedCell = null;
+                        setInstructionValue("Select a Follow table cell with a Follow() column to simplify.");
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+        this.render();
+        checkProgress();
+    }
+    ruleRowCallback(rowId) {
+        const selectedProductionCells = selectedProductionFollowCells.get(rowId);
+        if (selectedProductionCells == null) {
+            return;
+        }
+        if (selectedProductionCells.size == 0) {
+            setErrorValue("The selected production does not use this rule! Try again.");
+        }
+        else {
+            setInstructionValue("Now select a value in the follow table that corresponds with this rule.");
+            this.selectedRule = rowId;
+            followTable.render();
+        }
+    }
+}
+// Check the progress of the current step, advancing if necessary
+function checkProgress(delayInstruction = true) {
+    switch (currentStep) {
+        case Steps.ENTER_EPSILON:
+            // Check that each production that produces epsilon has its first table
+            // cell filled
+            var done = true;
+            for (var i = 0; i < productionTable.productions.length; i++) {
+                var prod = productionTable.productions[i];
+                // Check if the production should produce epsilon
+                if (prod.rule.right[0] == epsilon) {
+                    // Check that its has been placed in the first table
+                    var cell = getTableCell(firstTable.tableID, prod.rule.left, epsilon);
+                    if (cell != null) {
+                        if ((cell === null || cell === void 0 ? void 0 : cell.textContent) != prod.idx.toString()) {
+                            // Not complete yet
+                            done = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            // Check if done
+            if (done == true) {
+                // Move on to the next step
+                currentStep = Steps.ENTER_EPSILON_FROM_EPSILON;
+                if (productionTable.selectedProduction != null) {
+                    productionTable.setProductionRowEnable(productionTable.selectedProduction, false);
+                }
+                setInstructionValue("Correct. Now choose a production rule that can produce epsilon indirectly.");
+                checkProgress();
+            }
+            else {
+                // Keep going
+                if (productionTable.selectedProduction != null) {
+                    productionTable.setProductionRowEnable(productionTable.selectedProduction, false);
+                }
+                setInstructionValue("Correct, Now select another production that can produce epsilon directly.");
+            }
+            break;
+        case Steps.ENTER_EPSILON_FROM_EPSILON:
+            var done = true;
+            for (var i = 0; i < productionTable.productions.length; i++) {
+                var prod = productionTable.productions[i];
+                // Check if the production should produce epsilon indirectly
+                var indirectlyEpsilon = true;
+                for (var j = 0; j < prod.rule.right.length; j++) {
+                    var indirectEpsilonCol = getTableCell(firstTableID, prod.rule.right[j], epsilon);
+                    if (indirectEpsilonCol != null) {
+                        // Check if the value is set
+                        if (indirectEpsilonCol.textContent != ".") {
+                            // Current symbol can resolve to epsilon.
+                            continue;
+                        }
+                    }
+                    // Any other case, its not indirectly epsilon
+                    indirectlyEpsilon = false;
+                    break;
+                }
+                // Check if this was indirectly epsilon
+                if (indirectlyEpsilon == true) {
+                    // Check that this production indicates that it can also
+                    // be epsilon
+                    var current_cell = getTableCell(firstTableID, prod.rule.left, epsilon);
+                    if ((current_cell === null || current_cell === void 0 ? void 0 : current_cell.textContent) == ".") {
+                        // Not Done
+                        done = false;
+                        break;
+                    }
+                }
+            }
+            // Check if done
+            if (done == true) {
+                // Move on to the next step
+                currentStep = Steps.FIND_FIRSTS;
+                if (productionTable.selectedProduction != null) {
+                    productionTable.setProductionRowEnable(productionTable.selectedProduction, true);
+                }
+                setInstructionValue("Correct. Now choose a production rule and begin finding the First Values.");
+                // Precalculate the first values of the production rules
+                for (var i = 0; i < productionTable.productions.length; i++) {
+                    const prod = productionTable.productions[i];
+                    // Walk through the right side
+                    var firstSet = new Set(grammar.firstSets.get(prod.rule.left));
+                    for (var j = 0; j < prod.rule.right.length; j++) {
+                        var currentSymbol = prod.rule.right[j];
+                        // Check if its a non-terminal
+                        if (grammar.terminals.has(currentSymbol) || currentSymbol == epsilon) {
+                            // Terminal, add it to the first set and move on
+                            firstSet === null || firstSet === void 0 ? void 0 : firstSet.add(currentSymbol);
+                            break;
+                        }
+                        else {
+                            // Non terminal found, Check if it is nullable
+                            var childCell = getTableCell(firstTableID, currentSymbol, epsilon);
+                            if ((childCell === null || childCell === void 0 ? void 0 : childCell.innerText) != ".") {
+                                // Nullable, Add to first set and continue through the production
+                                firstSet === null || firstSet === void 0 ? void 0 : firstSet.add(`First(${currentSymbol})`);
+                            }
+                            else {
+                                // Not Nullable, Add to first set and and stop
+                                firstSet === null || firstSet === void 0 ? void 0 : firstSet.add(`First(${currentSymbol})`);
+                                break;
+                            }
+                        }
+                    }
+                    grammar.firstSets.set(prod.rule.left, firstSet);
+                    checkProgress();
+                }
+            }
+            else {
+                if (productionTable.selectedProduction != null) {
+                    productionTable.setProductionRowEnable(productionTable.selectedProduction, true);
+                }
+                setInstructionValue("Correct, Now select another production that can indirectly produce epsilon.");
+            }
+            break;
+        case Steps.FIND_FIRSTS:
+            var allProdsComplete = true;
+            for (var j = 0; j < productionTable.productions.length; j++) {
+                var prod = productionTable.productions[j];
+                var prodComplete = true;
+                // Walk through production and check if all of its firsts are placed
+                for (var i = 0; i < prod.rule.right.length; i++) {
+                    var currentSymbol = prod.rule.right[i];
+                    if (grammar.terminals.has(currentSymbol)) {
+                        var cell = getTableCell(firstTableID, prod.rule.left, currentSymbol);
+                        if ((cell === null || cell === void 0 ? void 0 : cell.textContent) != emptyCell) {
+                            // Production complete
+                            break;
+                        }
+                        else {
+                            prodComplete = false;
+                            break;
+                        }
+                    }
+                    else {
+                        var correctColumn = `First(${currentSymbol})`;
+                        var cell = getTableCell(firstTableID, prod.rule.left, correctColumn);
+                        if ((cell === null || cell === void 0 ? void 0 : cell.textContent) == emptyCell) {
+                            prodComplete = false;
+                            break;
+                        }
+                        else {
+                            // Only continue if the symbol is nullable
+                            var epsilonCell = getTableCell(firstTableID, currentSymbol, epsilon);
+                            if ((epsilonCell === null || epsilonCell === void 0 ? void 0 : epsilonCell.textContent) != emptyCell) {
+                                // Is nullable, Continue
+                                continue;
+                            }
+                            else {
+                                // Done
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (prodComplete) {
+                    // Only print this message if the current production being
+                    // Checked is the selected production
+                    if (j == productionTable.selectedProduction) {
+                        productionTable.setProductionRowEnable(j, false);
+                        setErrorValue("");
+                        setInstructionValue("Good Job. Now select another production.");
+                    }
+                }
+                else {
+                    allProdsComplete = false;
+                }
+            }
+            if (allProdsComplete) {
+                console.log("Step: Find Firsts complete.");
+                setInstructionValue("Good Job, Now Lets backfill the First() values in the table.");
+                // Prepare the first table for the next step
+                // First do a pass of the grammar first sets to see what can be
+                // solved in a single pass
+                processFirstSets();
+                // Disable all the cells in the first table
+                firstTable.colorAllCells(HTMLColors.disableColor);
+                firstTable.disableAllCells();
+                // Now update the step and run another pass of check progress
+                currentStep = Steps.FIND_FIRSTS_COMPUTED;
+                checkProgress();
+            }
+            break;
+        case Steps.FIND_FIRSTS_COMPUTED:
+            // Start by finding what First() values still need to be solved in the
+            // first table, Do this by checking all the row, col combinations
+            // of the table
+            var needSolvePass = true;
+            for (const rowSymbol of grammar.nonTerminals.values()) {
+                // Skip any rows that cannot currently be solved
+                if (!grammar.solvedFirstSets.has(rowSymbol)) {
+                    continue;
+                }
+                for (const colSymbol of grammar.nonTerminals.values()) {
+                    const cell = firstTable.getCell(rowSymbol, `First(${colSymbol})`);
+                    if (cell == null) {
+                        continue;
+                    }
+                    // If this cell has a value set then it still needs to be
+                    // solved.
+                    if (cell.data != emptyCell) {
+                        // Now check if this cell can be solved this cycle by
+                        // referencing the grammars firstSets
+                        if (grammar.solvedFirstSets.has(rowSymbol)) {
+                            // Check if this has already been solved by another
+                            // First() cell being solved (Due to implicit epsilon)
+                            var notCompleted = false;
+                            var currentFirstSet = grammar.firstSets.get(rowSymbol);
+                            for (var childSymbol of currentFirstSet.values()) {
+                                var symbolCell = firstTable.getCell(rowSymbol, childSymbol);
+                                if (symbolCell.data == emptyCell) {
+                                    notCompleted = true;
+                                    break;
+                                }
+                            }
+                            if (notCompleted) {
+                                // It can be solved this cycle, Highlight red, enable
+                                // the cell, Mark that we don't need another solve pass
+                                cell.color = HTMLColors.errorColor;
+                                cell.enabled = true;
+                                // Mark this cell as one that needs to be simplified
+                                cell.attributes.set(CellAttr.needsSimplified, "true");
+                                firstTable.setCell(rowSymbol, `First(${colSymbol})`, cell);
+                                needSolvePass = false;
+                            }
+                            else {
+                                // Cell was already completed by another cell filling
+                                // in all its first values
+                                // It can be solved this cycle, Highlight red, enable
+                                // the cell, Mark that we don't need another solve pass
+                                cell.color = HTMLColors.disableColor;
+                                cell.enabled = false;
+                                cell.data = emptyCell;
+                                // Mark this cell as one that needs to be simplified
+                                cell.attributes.delete(CellAttr.needsSimplified);
+                                firstTable.setCell(rowSymbol, `First(${colSymbol})`, cell);
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+            // render the table
+            firstTable.render();
+            // Check if we need a new solve pass
+            if (needSolvePass) {
+                // Check if all the first values are solved
+                if (grammar.solvedFirstSets.size == grammar.firstSets.size) {
+                    // All first values have been solved, so we are done with
+                    // this step
+                    currentStep = Steps.FIND_FOLLOWS;
+                    prepForFollowSolve();
+                    checkProgress();
+                }
+                else {
+                    processFirstSets();
+                }
+                firstTable.render();
+                // Check progress again
+                checkProgress();
+            }
+            break;
+        case Steps.FIND_FOLLOWS:
+            // Check if a rule and production are selected
+            if (followTable.selectedRule == null || productionTable.selectedProduction == null) {
+                // Rule hasn't been selected, move on
+                break;
+            }
+            var selectedCells = selectedProductionFollowCells.get(followTable.selectedRule);
+            if (selectedCells == null) {
+                break;
+            }
+            // Check if the selected rule was the last of the current type
+            if (selectedCells.size == 0) {
+                // Unselect this rule
+                followTable.selectedRule = null;
+                setInstructionValue("Good, Now select another Rule from the Follow Rules table.");
+            }
+            var allRulesComplete = true;
+            for (const [ruleId, ruleCells] of selectedProductionFollowCells) {
+                if (ruleId > 2) {
+                    continue;
+                }
+                if (ruleCells.size != 0) {
+                    followTable.rulesData[ruleId] = true;
+                    allRulesComplete = false;
+                }
+                else {
+                    // Disable that rule
+                    followTable.rulesData[ruleId] = false;
+                }
+            }
+            // Check if all the rules have been finished for this production
+            if (allRulesComplete) {
+                // Disable selected Production and move on
+                productionTable.setProductionRowEnable(productionTable.selectedProduction, false);
+                setInstructionValue("Good, Now select another Production from the Production Table.");
+            }
+            // Check if all productions have been finished
+            var done = true;
+            for (const prod of productionTable.productions) {
+                if (prod.enabled) {
+                    done = false;
+                    break;
+                }
+            }
+            if (done) {
+                // Done with this step
+                setInstructionValue("Good Job. Now we need to simplify the First columns in the follow table. Select a Follow table cell with a First() column to simplify.");
+                currentStep = Steps.FIND_FOLLOWS_COMPUTED_FIRSTS;
+                // Hide the rules table
+                followTable.renderRules = false;
+                // Disable all cells to start
+                followTable.disableAllCells();
+                followTable.colorAllCells(HTMLColors.disableColor);
+                // Highlight all the cells in the First() columns, and enable them
+                for (const c of grammar.nonTerminals.values()) {
+                    const columnKey = `First(${c})`;
+                    for (const rowKey of grammar.nonTerminals.values()) {
+                        var followCell = followTable.getCell(rowKey, columnKey);
+                        if (followCell == null) {
+                            continue;
+                        }
+                        else if (followCell.data != emptyCell) {
+                            // Enable and highlight the cell
+                            followCell.color = HTMLColors.errorColor;
+                            followCell.enabled = true;
+                            followCell.attributes.set("data-ParentCell", "true");
+                            followTable.setCell(rowKey, columnKey, followCell);
+                        }
+                    }
+                }
+                checkProgress();
+                break;
+            }
+            break;
+        case Steps.FIND_FOLLOWS_COMPUTED_FIRSTS:
+            // Check if we are already solving a First Column
+            if (followTable.selectedCell != null) {
+                // Already solving a First()
+                setInstructionValue("Select a highlighted cell in the First table to place in the Follow table.");
+            }
+            // Check if all the First() values are solved
+            else if (followTable.solvingFollowSet.size == 0) {
+                // Just solved the First() column
+                followTable.selectedCell = null;
+                setInstructionValue("Select a Follow table cell with a First() column to simplify.");
+            }
+            var done = true;
+            // Check if we have solved all the First Columns
+            for (const c of grammar.nonTerminals.values()) {
+                const columnKey = `First(${c})`;
+                for (const rowKey of grammar.nonTerminals.values()) {
+                    var followCell = followTable.getCell(rowKey, columnKey);
+                    if (followCell == null) {
+                        continue;
+                    }
+                    else if (followCell.data != emptyCell) {
+                        // Still Solving
+                        done = false;
+                    }
+                }
+            }
+            if (done) {
+                // Move to next step
+                currentStep = Steps.FIND_FOLLOWS_COMPUTED_FOLLOWS;
+                // Hide the First() columns
+                for (const nonTerm of grammar.nonTerminals) {
+                    const column = `First(${nonTerm})`;
+                    const idx = followTable.columns.indexOf(column);
+                    if (idx < 0) {
+                        continue;
+                    }
+                    followTable.columns.splice(idx, 1);
+                    for (const followColumn of followTable.tableData.values()) {
+                        followColumn.delete(column);
+                    }
+                }
+                // Disable all cells to start
+                followTable.disableAllCells();
+                followTable.colorAllCells(HTMLColors.disableColor);
+                // Highlight all the cells in the Follow() columns, and enable them
+                for (const c of grammar.nonTerminals.values()) {
+                    const columnKey = `Follow(${c})`;
+                    for (const rowKey of grammar.nonTerminals.values()) {
+                        var followCell = followTable.getCell(rowKey, columnKey);
+                        if (followCell == null) {
+                            continue;
+                        }
+                        else if (followCell.data != emptyCell) {
+                            // Enable and highlight the cell
+                            followCell.color = HTMLColors.errorColor;
+                            followCell.enabled = true;
+                            followCell.attributes.set("data-ParentCell", "true");
+                            followTable.setCell(rowKey, columnKey, followCell);
+                        }
+                    }
+                }
+                setInstructionValue("Select a Follow table cell with a Follow() column to simplify.");
+                checkProgress();
+            }
+            break;
+        case Steps.FIND_FOLLOWS_COMPUTED_FOLLOWS:
+            // Check if we are already solving a Follow Column
+            if (followTable.selectedCell != null) {
+            }
+            // Check if all the Follow() values are solved
+            else if (followTable.solvingFollowSet.size == 0) {
+                // Just solved the Follow() column
+                followTable.disableAllCells();
+                followTable.colorAllCells(HTMLColors.disableColor);
+                // Highlight all the cells in the Follow() columns, and enable them
+                for (const c of grammar.nonTerminals.values()) {
+                    const columnKey = `Follow(${c})`;
+                    for (const rowKey of grammar.nonTerminals.values()) {
+                        var followCell = followTable.getCell(rowKey, columnKey);
+                        if (followCell == null) {
+                            continue;
+                        }
+                        else if (followCell.data != emptyCell) {
+                            // Enable and highlight the cell
+                            followCell.color = HTMLColors.errorColor;
+                            followCell.enabled = true;
+                            followCell.attributes.set("data-ParentCell", "true");
+                            followTable.setCell(rowKey, columnKey, followCell);
+                        }
+                    }
+                }
+                setInstructionValue("Select a Follow table cell with a Follow() column to simplify.");
+                followTable.selectedCell = null;
+            }
+            var done = true;
+            // Check if we have solved all the Follow Columns
+            for (const c of grammar.nonTerminals.values()) {
+                const columnKey = `Follow(${c})`;
+                for (const rowKey of grammar.nonTerminals.values()) {
+                    var followCell = followTable.getCell(rowKey, columnKey);
+                    if (followCell == null) {
+                        continue;
+                    }
+                    else if (followCell.data != emptyCell) {
+                        // Still Solving
+                        done = false;
+                    }
+                }
+            }
+            if (done) {
+                // We have build the tables
+                // Hide the Follow() columns
+                for (const nonTerm of grammar.nonTerminals) {
+                    const column = `Follow(${nonTerm})`;
+                    const idx = followTable.columns.indexOf(column);
+                    if (idx < 0) {
+                        continue;
+                    }
+                    followTable.columns.splice(idx, 1);
+                    for (const followColumn of followTable.tableData.values()) {
+                        followColumn.delete(column);
+                    }
+                }
+                // Disable all cell
+                followTable.disableAllCells();
+                firstTable.disableAllCells();
+                // Color them normally
+                followTable.colorAllCells(HTMLColors.defaultColor);
+                firstTable.colorAllCells(HTMLColors.defaultColor);
+                // Mark as done
+                currentStep = Steps.FIND_FOLLOWS_COMPUTED_FOLLOWS;
+                setInstructionValue("Good Job, The First and Follow tables are now complete!");
+            }
+            break;
+        default:
+            break;
+    }
+    productionTable.render();
+    firstTable.render();
+    followTable.render();
+}
+// This function parses an array of strings, where each string is a production rule,
+// into a structured Grammar object.
+function createGrammar(input) {
+    try {
+        // Initialize an empty array for production rules.
+        const rules = [];
+        // Initialize sets for terminals and non-terminals.
+        const terminals = new Set();
+        const nonTerminals = new Set();
+        var firstSets = new Map();
+        var followSets = new Map();
+        // Add the starting rule
+        const firstSymbol = input.trim()[0];
+        input = `S ::= ${firstSymbol} $\n${input}`;
+        // Split input string into lines
+        var inputLines = input.trim().split(/\r?\n/);
+        // Process each line of the grammar input.
+        for (const line of inputLines) {
+            // Split the production rule by " ::=" and remove extra whitespace.
+            const [left, right] = line.split("::=").map((s) => s.trim());
+            // Split the right-hand side by the OR symbol ('|') to get alternative productions.
+            // Each alternative represents a separate production rule.
+            const alternatives = right.split("|").map(alt => alt.trim());
+            // Process each alternative.
+            for (const alt of alternatives) {
+                // Split the alternative into individual symbols by spaces.
+                // Filter out any empty strings that might occur due to extra whitespace.
+                const rightSymbols = alt.split(" ").filter(sym => sym.length > 0);
+                // Create a production rule object and add it to the rules array.
+                rules.push({ left, right: rightSymbols });
+                // The left-hand side is always a non-terminal.
+                nonTerminals.add(left);
+                // Determine if each symbol on the right-hand side is a terminal or non-terminal.
+                rightSymbols.forEach((symbol) => {
+                    // Skip for epsilon
+                    if (symbol == epsilon) {
+                        // Do nothing
+                    }
+                    // Using a simple heuristic: assume a symbol is a terminal if it doesn't consist solely of uppercase letters.
+                    // This heuristic can be adjusted based on the grammar's conventions.
+                    else if (!/^[A-Z]+$/.test(symbol)) {
+                        terminals.add(symbol);
+                    }
+                    else {
+                        // Otherwise, treat it as a non-terminal.
+                        nonTerminals.add(symbol);
+                    }
+                });
+            }
+        }
+        // Populate the first and follow sets
+        nonTerminals.forEach((term) => {
+            firstSets.set(term, new Set());
+            followSets.set(term, new Set());
+        });
+        // Check for empty productions
+        if (nonTerminals.size == 0) {
+            // No productions entered
+            return null;
+        }
+        var solvedFirstSets = new Set;
+        // Return the structured grammar object with empty FIRST and FOLLOW sets.
+        return {
+            terminals,
+            nonTerminals,
+            rules,
+            firstSets,
+            followSets,
+            solvedFirstSets
+        };
+    }
+    catch (error) {
+        console.error("Could not parse input Grammar!");
+        return null;
+    }
+}
+// Runs a single pass of the first sets backfilling algorithm to help track what
+// cells can be backfilled in the FIRSTS_COMPUTED step
+function processFirstSets() {
+    // clear any colors and disable the cells
+    firstTable.colorAllCells(HTMLColors.disableColor);
+    firstTable.disableAllCells();
+    var processedFirstSets = new Map();
+    for (const [key, value] of grammar.firstSets.entries()) {
+        // Create a copy of the first set to use to prevent changing it during
+        // the loop
+        var newFirstSet = new Set();
+        for (const symbol of value.values()) {
+            // Only select the non-terminal values
+            if (grammar.terminals.has(symbol) || symbol == epsilon) {
+                // Copy the terminals to the new set
+                newFirstSet.add(symbol);
+                continue;
+            }
+            // Extract the symbol from the string 'First(symbol)'
+            const rawSymbol = symbol.charAt(6);
+            // Pull the first set from the rawSymbol
+            const childFirstSet = grammar.firstSets.get(rawSymbol);
+            // Null check
+            if (childFirstSet == null) {
+                continue;
+            }
+            // Add the child symbols to the new set
+            for (const childSymbol of childFirstSet === null || childFirstSet === void 0 ? void 0 : childFirstSet.values()) {
+                // Check for self referential first sets
+                if (childSymbol == `First(${key})`) {
+                    // Skip adding this
+                    continue;
+                }
+                newFirstSet.add(childSymbol);
+            }
+        }
+        // Update the original first set
+        processedFirstSets.set(key, newFirstSet);
+        // Check if this first set is solved
+        var isSolved = true;
+        for (const symbol of newFirstSet.values()) {
+            if (!(grammar.terminals.has(symbol) || (symbol == epsilon))) {
+                // Not Solved
+                isSolved = false;
+                break;
+            }
+        }
+        // Mark solved as needed
+        if (isSolved) {
+            grammar.solvedFirstSets.add(key);
+        }
+    }
+    grammar.firstSets = processedFirstSets;
+}
+// Prepares for the follow table to be solved
+function prepForFollowSolve() {
+    // Un-hide the table
+    followTable.setTableHidden(false);
+    followTable.renderRules = true;
+    // Enable all the rows in the production table that contain non-terminals,
+    // Disabling others
+    for (var i = 0; i < productionTable.productions.length; i++) {
+        const prod = productionTable.productions[i];
+        var enableRow = false;
+        for (const symbol of prod.rule.right.values()) {
+            if (grammar.nonTerminals.has(symbol)) {
+                enableRow = true;
+                break;
+            }
+        }
+        productionTable.setProductionRowEnable(i, enableRow);
+    }
+    // Disable first table
+    firstTable.disableAllCells();
+    firstTable.colorAllCells(HTMLColors.disableColor);
+    // Remove the un-needed rows in the first table
+    for (const nonTerm of grammar.nonTerminals) {
+        const column = `First(${nonTerm})`;
+        const idx = firstTable.columns.indexOf(column);
+        if (idx < 0) {
+            continue;
+        }
+        firstTable.columns.splice(idx, 1);
+        for (const firstColumn of firstTable.tableData.values()) {
+            firstColumn.delete(column);
+        }
+    }
+    // Render tables
+    firstTable.render();
+    followTable.render();
+    productionTable.render();
+    setInstructionValue("Now we can begin to solve the Follow Table. Select a production that contains a non-terminal in its right hand side to begin.");
+}
+// Start the Parser and build the starting tables, OnClick function for the
+// grammar input box "=>" button
+function startParser() {
+    // Collect and use the input from the user
+    let inputBox = document.getElementById(grammarInputBox);
+    if (inputBox == null) {
+        // Could not acquire the input box element
+        return null;
+    }
+    grammar = createGrammar(inputBox.value);
+    if (grammar == null) {
+        setInstructionValue("");
+        setErrorValue("Could Not Parse the inputted grammar. Please check for typos and try again!");
+    }
+    else {
+        currentStep = Steps.ENTER_EPSILON;
+        productionTable = new ProductionTable(grammarProductionColumn, grammar);
+        firstTable = new FirstTable(grammar);
+        followTable = new FollowTable(grammar);
+        // Hide the follow table for now
+        followTable.setTableHidden(true);
+        followTable.render();
+        setInstructionValue("Select a production that can produce epsilon directly.");
+        setErrorValue("");
+        checkProgress();
+    }
+}
+// Set up for the page
+function setup() {
+    let inputBox = document.getElementById(grammarInputBox);
+    if (inputBox != null) {
+        console.log(defaultGrammar);
+        inputBox.innerHTML = defaultGrammar;
+    }
+    currentStep = Steps.ENTER_GRAMMAR;
+    setInstructionValue("Enter a grammar and hit the => to start, Or select Random.");
+}
+function generateRandomCharacter(alphabet) {
+    const randomIndex = Math.floor(Math.random() * alphabet.length * alphabet.length) % alphabet.length;
+    return alphabet[randomIndex];
+}
+function getRandomProduction(L, nonTerminals = sampleNonTerminals, maxLen = 10) {
+    const length = Math.floor(Math.random() * 100) % maxLen + 1;
+    var availNonTerms = nonTerminals.split(L).join("");
+    var RHS = new Array;
+    if (Math.random() > 0.4) {
+        // Just other non terms
+        for (var i = 0; i < length; i++) {
+            // Non-Terminal
+            const randChar = generateRandomCharacter(availNonTerms);
+            availNonTerms = availNonTerms.split(randChar).join("");
+            RHS.push(randChar);
+        }
+    }
+    else {
+        for (var i = 0; i < length; i++) {
+            if (Math.random() > 0.9) {
+                // Non-Terminal
+                const randChar = generateRandomCharacter(availNonTerms);
+                availNonTerms = availNonTerms.split(randChar).join("");
+                RHS.push(randChar);
+            }
+            else {
+                // Terminal
+                RHS.push(generateRandomCharacter(sampleTerminals));
+            }
+        }
+    }
+    return `${L} ::= ${RHS.join(" ")}`;
+}
+// Random Grammar Button
+function randomGrammar() {
+    console.log("Creating Random Productions...");
+    var numberOfNonTerminals = Math.floor((Math.random() * 10)) % 5;
+    if (numberOfNonTerminals < 3) {
+        numberOfNonTerminals = numberOfNonTerminals + 3;
+    }
+    var possibleNonTerms = sampleNonTerminals;
+    var nonTerminals = "";
+    for (var i = 0; i < numberOfNonTerminals; i++) {
+        const randChar = generateRandomCharacter(possibleNonTerms);
+        nonTerminals = nonTerminals + randChar;
+        possibleNonTerms = possibleNonTerms.split(randChar).join("");
+    }
+    console.log(`# ${numberOfNonTerminals} NonTerms: ${nonTerminals}`);
+    var productions = new Array();
+    var chance = Math.random();
+    for (var i = 0; i < nonTerminals.length; i++) {
+        var LHS = nonTerminals[i];
+        var repeat = true;
+        if ((nonTerminals.length - 3) - i < 0) {
+            productions.push(`${LHS} ::= e`);
+        }
+        while (repeat) {
+            var prod = getRandomProduction(LHS, nonTerminals);
+            console.log(prod);
+            productions.push(prod);
+            if (Math.random() < chance) {
+                chance = chance / 2;
+                console.log(`Creating additional production for nonTerm: ${LHS}`);
+                continue;
+            }
+            else {
+                repeat = false;
+            }
+        }
+    }
+    var joinedProductions = productions.join("\n");
+    console.log("Productions: ");
+    console.log(joinedProductions);
+    let inputBox = document.getElementById(grammarInputBox);
+    if (inputBox != null) {
+        inputBox.innerHTML = joinedProductions;
+    }
+}
+const sampleTerminals = '+-()';
+const sampleNonTerminals = 'ABCDEFGHIJKLMNOPQRTUVWXYZ';
+//# sourceMappingURL=parser.js.map

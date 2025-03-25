@@ -1,0 +1,81 @@
+<!DOCTYPE HTML>
+<html>
+    <head>
+        <meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+        <!-- Chrome browser will display response in the form of html page by using above line. -->    
+        <link rel="stylesheet" href="general.css">
+        <script type="text/javascript" src="../general.js"></script>
+        <script type="text/javascript" src="../tableFunctions.js"></script>
+        <script type="text/javascript" src="../headerFunction.js"></script>
+        <script type="text/javascript" src="../pseudocodeFunctions.js"></script>
+        <script type="text/javascript" src="./FirstAndFollow.js"></script>
+    </head>
+
+<body>
+  <!-- Header -->
+  <script>
+    createHeader("First and Follow Sets.");
+  </script>
+
+  <script>
+     //welcome();
+   </script>
+  <script>
+  </script>
+
+<H1> Grammar </H1>
+
+<table class="ignore-css" style="width:100%; border:none;"    cellspacing="0" cellpadding="0">
+  <tr>
+    <td  id="MessageTableCol" style="border:none; width:20%;">
+       <table id = "messageTable" class="ignore-css" style="width:100%; border:none;"    cellspacing="0" cellpadding="0">
+           <tr>
+              <td>
+              </td>
+           </tr>
+           <tr>
+              <td>
+              </td>
+           </tr>
+       </table>
+    </td>
+    <td style="border:0; width:30%;">
+        <p id="MyCurrentStep"></p>
+        <textarea name="UserGrammar" id="UserGrammar" style="width:100%" cols="40" rows="15">
+D ::= R
+R ::= B C 
+B ::= +
+B ::= e
+C ::= -
+C ::= e
+        </textarea>
+    </td>
+    <td style="width:10%; border:none;">
+       <button onclick="userGrammar()" id="userGrammarButton">=></button>   <BR> <BR> <BR>
+       <button onclick="randomGrammar()" id="RandomButton">Random</button>
+    </td>
+    <td  id="MyGrammar" style="border:none;">
+    </td>
+  </tr>
+ </table>
+
+  <script>
+     step = Steps.INVALID;
+     checkProgress();
+    //  instruction("Enter your grammar in the box below or press the random button. Make sure to separate all elements with spaces.");
+     //createTerminals();
+  </script>
+
+  <script>
+     createFollowTable();
+  </script> 
+
+  <BR>
+  <input  style="visibility:hidden;" type="button" id="ButtonShowMe" value="ShowMe" onclick="nextStep()" disabled>
+  <input  style="visibility:hidden;" type="button" id="ButtonYes" value="Yes" onclick="choseYes()" disabled>
+  <input  style="visibility:hidden;" type="button" id="ButtonNo"value="No" onclick="choseNo()" disabled>
+  
+</body>
+
+</html>

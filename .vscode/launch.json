@@ -1,0 +1,34 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "node - parser",
+            "program": "${workspaceFolder}\\project\\src\\parser.ts",
+            "preLaunchTask": "tsc: Typescript to JS",
+            "outFiles": [
+                "${workspaceFolder}/build//**/*js"
+            ]
+        },
+        {
+            "type": "msedge",
+            "request": "launch",
+            "name": "Launch Edge - parser",
+            "preLaunchTask": "tsc: Typescript to JS",
+            "url": "${workspaceFolder}\\project\\index.html",
+            "webRoot": "${workspaceFolder}\\project"
+          },
+          {
+            "type": "msedge",
+            "request": "launch",
+            "name": "Launch Edge - Follow",
+            "preLaunchTask": "tsc: Typescript to JS",
+            "url": "${workspaceFolder}\\project\\FollowTableStartingPointTest.html",
+            "webRoot": "${workspaceFolder}\\project"
+          },
+    ]
+}
