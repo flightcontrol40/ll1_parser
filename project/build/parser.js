@@ -27,6 +27,8 @@ const followRulesID = "followRules";
 const lastTableDiv = "lastTableDiv";
 const lastTableID = "lastTable";
 const messageTableID = "Instructions";
+const messageParent = "MessageTable";
+const headingTable = "Table_1";
 const emptyCell = ".";
 const defaultGrammar = [
     "D ::= R",
@@ -125,6 +127,24 @@ function setErrorValue(value) {
     errorString = value;
     instructions.textContent = [instructionString, errorString].join("\n");
 }
+// Get the non-terminal row key from a string of type 'First(<non-term>)' or
+// 'Follow(<non-term>)' 
+function extractRowKey(value) {
+    var _a;
+    if (value == null) {
+        return null;
+    }
+    const regex = /(?:(?:First|Follow)\((?<row>.*)\))/;
+    const found = value.match(regex);
+    if (found != null) {
+        const row = (_a = found.groups) === null || _a === void 0 ? void 0 : _a.row;
+        if (row == null) {
+            return null;
+        }
+        return row;
+    }
+    return null;
+}
 // Represents the current state of the Production Table
 class ProductionTable {
     constructor(parentID, grammar) {
@@ -197,6 +217,11 @@ class ProductionTable {
         // Add the created table back
         var parent = document.getElementById(this.parentID);
         parent === null || parent === void 0 ? void 0 : parent.appendChild(this.table);
+    }
+    disableAllRows() {
+        for (var y = 0; y < this.productions.length; y++) {
+            this.setProductionRowEnable(y, false);
+        }
     }
     setProductionRowEnable(row, enable) {
         this.productions[row].enabled = enable;
@@ -389,6 +414,26 @@ class ProductionTable {
         return null;
     }
 }
+function resetError() {
+    setInstructionValue("", true);
+    const body = document.getElementById("BODY");
+    body.style.backgroundColor = HTMLColors.defaultColor;
+}
+// Error state caused by a left recursion
+function leftRecursionError() {
+    setInstructionValue("", true);
+    const body = document.getElementById("BODY");
+    body.style.backgroundColor = HTMLColors.errorColor;
+    setErrorValue("Cannot Continue! The Language is not LL(1) Parsable!");
+    firstTable.disableAllCells();
+    followTable.disableAllCells();
+    productionTable.disableAllRows();
+    firstTable.colorAllCells(HTMLColors.disableColor);
+    followTable.colorAllCells(HTMLColors.disableColor);
+    firstTable.render();
+    followTable.render();
+    productionTable.render();
+}
 // Class for interacting with the first table
 class FirstTable {
     constructor(grammar) {
@@ -421,6 +466,12 @@ class FirstTable {
             this.tableData.set(row, newColumn);
         });
         this.render();
+    }
+    setTableHeaderColor(color) {
+        var header = this.table.caption;
+        if (header != null) {
+            header.style.backgroundColor = color;
+        }
     }
     // Internal method for setting callback of cells
     _setTableCellCallback(cell, table, rowLabel, columnLabel) {
@@ -757,7 +808,11 @@ class FirstTable {
                 // that is a production of the backfill simplification
                 if (selectedCellData.attributes.has(CellAttr.needsSimplified)) {
                     // Check what values this First Column can be simplified into
-                    const columnSymbol = columnLabel.charAt(6);
+                    const columnSymbol = extractRowKey(columnLabel);
+                    if (columnSymbol == null) {
+                        console.error("Column Symbol could not be found!");
+                        return;
+                    }
                     const childFirstSet = grammar.firstSets.get(columnSymbol);
                     if (childFirstSet == null) {
                         break;
@@ -803,6 +858,12 @@ class FirstTable {
                     const fillData = selectedCellData.attributes.get(CellAttr.needsFilled);
                     if (fillData == null) {
                         break;
+                    }
+                    // Check for left Recursion
+                    if (selectedCellData.data != emptyCell) {
+                        if (selectedCellData.data != fillData) {
+                            leftRecursionError();
+                        }
                     }
                     selectedCellData.data = fillData;
                     selectedCellData.color = HTMLColors.disableColor;
@@ -925,6 +986,12 @@ class FollowTable {
         this.setCellValue("S", "$", "X");
         grammar.followSets.set("S", new Set("$"));
         this.render();
+    }
+    setTableHeaderColor(color) {
+        var header = this.table.caption;
+        if (header != null) {
+            header.style.backgroundColor = color;
+        }
     }
     setTableHidden(hidden) {
         this.hidden = hidden;
@@ -1219,7 +1286,11 @@ class FollowTable {
                     firstTable.colorAllCells(HTMLColors.disableColor);
                     firstTable.disableAllCells();
                     // Find which first table values need to be set in the follow table
-                    const firstRowKey = columnLabel.charAt(6);
+                    const firstRowKey = extractRowKey(columnLabel);
+                    if (firstRowKey == null) {
+                        console.error("Column Symbol could not be found!");
+                        return;
+                    }
                     for (const firstColumnKey of firstTable.columns.values()) {
                         var firstCell = firstTable.getCell(firstRowKey, firstColumnKey);
                         if (firstCell == null) {
@@ -1311,7 +1382,11 @@ class FollowTable {
                     }
                     this.selectedCell = { rowLabel, columnLabel };
                     // Get the row that corresponds to this Follow() value
-                    const followValueRowKey = columnLabel.charAt(7);
+                    const followValueRowKey = extractRowKey(columnLabel);
+                    if (followValueRowKey == null) {
+                        console.error("Column Symbol could not be found!");
+                        return;
+                    }
                     // Check for a Row that follows itself
                     if (followValueRowKey == rowLabel) {
                         // Row that follows itself, Effectively already solved
@@ -1916,13 +1991,18 @@ function createGrammar(input) {
         const nonTerminals = new Set();
         var firstSets = new Map();
         var followSets = new Map();
-        // Add the starting rule
-        const firstSymbol = input.trim()[0];
-        input = `S ::= ${firstSymbol} $\n${input}`;
         // Split input string into lines
-        var inputLines = input.trim().split(/\r?\n/);
+        var inputLines = input.trim().split(/(?:\r?\n)+/);
+        // Add the starting rule
+        const [left, right] = inputLines[0].split("::=").map((s) => s.trim());
+        const productionStrings = [`S ::= ${left} $`].concat(inputLines);
         // Process each line of the grammar input.
-        for (const line of inputLines) {
+        for (const line of productionStrings) {
+            const [left, right] = line.split("::=").map((s) => s.trim());
+            // The left-hand side is always a non-terminal.
+            nonTerminals.add(left);
+        }
+        for (const line of productionStrings) {
             // Split the production rule by " ::=" and remove extra whitespace.
             const [left, right] = line.split("::=").map((s) => s.trim());
             // Split the right-hand side by the OR symbol ('|') to get alternative productions.
@@ -1935,22 +2015,15 @@ function createGrammar(input) {
                 const rightSymbols = alt.split(" ").filter(sym => sym.length > 0);
                 // Create a production rule object and add it to the rules array.
                 rules.push({ left, right: rightSymbols });
-                // The left-hand side is always a non-terminal.
-                nonTerminals.add(left);
                 // Determine if each symbol on the right-hand side is a terminal or non-terminal.
                 rightSymbols.forEach((symbol) => {
+                    console.log(`Right Symbol: ${symbol}`);
                     // Skip for epsilon
                     if (symbol == epsilon) {
                         // Do nothing
                     }
-                    // Using a simple heuristic: assume a symbol is a terminal if it doesn't consist solely of uppercase letters.
-                    // This heuristic can be adjusted based on the grammar's conventions.
-                    else if (!/^[A-Z]+$/.test(symbol)) {
+                    else if (!(nonTerminals.has(symbol))) {
                         terminals.add(symbol);
-                    }
-                    else {
-                        // Otherwise, treat it as a non-terminal.
-                        nonTerminals.add(symbol);
                     }
                 });
             }
@@ -2000,7 +2073,11 @@ function processFirstSets() {
                 continue;
             }
             // Extract the symbol from the string 'First(symbol)'
-            const rawSymbol = symbol.charAt(6);
+            const rawSymbol = extractRowKey(symbol);
+            if (rawSymbol == null) {
+                console.error("Column Symbol could not be found!");
+                return;
+            }
             // Pull the first set from the rawSymbol
             const childFirstSet = grammar.firstSets.get(rawSymbol);
             // Null check
@@ -2078,6 +2155,7 @@ function prepForFollowSolve() {
 // grammar input box "=>" button
 function startParser() {
     // Collect and use the input from the user
+    resetError();
     let inputBox = document.getElementById(grammarInputBox);
     if (inputBox == null) {
         // Could not acquire the input box element
