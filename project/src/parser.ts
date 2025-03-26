@@ -46,7 +46,8 @@ enum HTMLColors  {
     disableColor   = "gray",
     highlightColor = "yellow",
     softGreyColor  = "#e4e3e3",
-    errorColor = "red"
+    errorColor = "red",
+    textColor = "black"
 }
 
 // Cell State attributes
@@ -91,6 +92,7 @@ var firstTable: FirstTable;
 var followTable: FollowTable;
 var instructionString: string = '';
 var errorString: string = '';
+var errorState: boolean = false
 var selectedProductionFollowCells: Map<FollowRuleType, Set<FollowCellSelection>> = new Map([
     [FollowRuleType.TERMINAL_FOLLOWS, new Set()],
     [FollowRuleType.NON_TERMINAL_FOLLOWS, new Set()],
@@ -307,6 +309,9 @@ class ProductionTable {
     }
 
     buttonCallback(row: number): null {
+        if (errorState == true){
+            return null;
+        }
         const prod = this.productions[row];
         switch (currentStep) {
             // Check if this rule directly produces epsilon
@@ -502,9 +507,12 @@ type CellData = {
 }
 
 function resetError(){
+    errorState = false
     setInstructionValue("", true);
     const body = document.getElementById("BODY") as HTMLBodyElement;
     body.style.backgroundColor = HTMLColors.defaultColor;
+    var instructions = document.getElementById(messageTableID) as HTMLHeadingElement;
+    instructions.style.color = HTMLColors.textColor;
 }
 
 // Error state caused by a left recursion
@@ -512,6 +520,8 @@ function leftRecursionError(){
     setInstructionValue("", true);
     const body = document.getElementById("BODY") as HTMLBodyElement;
     body.style.backgroundColor = HTMLColors.errorColor;
+    var instructions = document.getElementById(messageTableID) as HTMLHeadingElement;
+    instructions.style.color = HTMLColors.defaultColor;
     setErrorValue("Cannot Continue! The Language is not LL(1) Parsable!")
     firstTable.disableAllCells();
     followTable.disableAllCells();
@@ -751,6 +761,9 @@ class FirstTable {
     }
     // FirstTable cell Callback
     cellCallback(rowLabel: string, columnLabel: string) {
+        if (errorState == true){
+            return;
+        }
         var cell = getTableCell(this.tableID, rowLabel,columnLabel);
         var selectedCellData = this.getCell(rowLabel, columnLabel);
         if (cell == null){
@@ -876,6 +889,12 @@ class FirstTable {
                                 stringComplete = true;
                                 break;
                             }
+                            else{
+                                setErrorValue(
+                                    `The production rule should be placed in the ${currentSymbol} column!`
+                                )
+                                break;
+                            }
                         }
                         else {
                             var correctColumn = `First(${currentSymbol})`;
@@ -956,7 +975,7 @@ class FirstTable {
                         if (childCellData == null){
                             continue;
                         }
-                        if (childCellData.data == emptyCell){
+                        // if (childCellData.data == emptyCell){
                             // Need to be filled, Highlight the cell, set attrs
                             childCellData.color = HTMLColors.highlightColor
                             childCellData.enabled = true;
@@ -970,7 +989,12 @@ class FirstTable {
                             currentParentColsArray.push(columnLabel);
                             childCellData.attributes.set(CellAttr.parentCellCol, JSON.stringify(currentParentColsArray));
                             this.setCell(rowLabel, childSymbol, childCellData);
-                        }
+                        // }
+                        // else {
+                        //     if (childCellData.data != selectedCellData.data){
+
+                        //     }
+                        // }
                     }
                     // Mark the list of child cells that need to be filled for this cell
                     // to be complete
@@ -992,9 +1016,10 @@ class FirstTable {
                         break;
                     }
                     // Check for left Recursion
-                    if (selectedCellData.data != emptyCell){
+                    if (selectedCellData.data != emptyCell && selectedCellData.data != fillData){
                         if (selectedCellData.data != fillData){
                             leftRecursionError()
+                            return;
                         }
                     }
                     selectedCellData.data = fillData;
@@ -1272,6 +1297,7 @@ class FollowTable {
             this.rulesTable.setAttribute("id", followRulesID);
             this.rulesTable.style.border = "2px solid black";
             this.rulesTable.style.backgroundColor = HTMLColors.defaultColor;
+            this.rulesTable.style.paddingTop = '10px';
             // Add header
             var rulesHeader = document.createElement("caption");
             rulesHeader.textContent = "Follow Rules";
@@ -1406,6 +1432,9 @@ class FollowTable {
     }
 
     cellCallback(rowLabel: string, columnLabel: string) {
+        if (errorState == true){
+            return;
+        }
         var selectedCellData = this.getCell(rowLabel, columnLabel);
         if (selectedCellData == null){
             return;
@@ -1694,6 +1723,9 @@ class FollowTable {
 
 // Check the progress of the current step, advancing if necessary
 function checkProgress(delayInstruction: boolean = true){
+    if (errorState == true){
+        return;
+    }
     switch (currentStep) {
         case Steps.ENTER_EPSILON:
             // Check that each production that produces epsilon has its first table
@@ -1941,6 +1973,12 @@ function checkProgress(delayInstruction: boolean = true){
                                     notCompleted = true;
                                     break;
                                 }
+                                else if(symbolCell.data != cell.data){
+                                    console.log("Left Recursion Detected in check")
+                                    // leftRecursionError();
+                                    notCompleted = true;
+                                    break;
+                                }
                             }
                             if (notCompleted){
                                 // It can be solved this cycle, Highlight red, enable
@@ -1975,6 +2013,7 @@ function checkProgress(delayInstruction: boolean = true){
                             }
                         }
                     }
+
                 }
             }
             // render the table

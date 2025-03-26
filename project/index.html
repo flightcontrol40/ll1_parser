@@ -1,76 +1,83 @@
 <!DOCTYPE html>
 <html>
-    <head>
+  <head>
     <title>LL1 Parser</title>
     <meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <!-- Chrome browser will display response in the form of html page by using above line. -->
-    </head>
-    <body id="BODY">
-        <table id="Table_1" class="ignore-css" style="width:100%; border:none;" cellspacing="15" cellpadding="5">
+    <link rel="stylesheet" type="text/css" href="style.css" />
+  </head>
+  <body id="BODY">
+    <div id="mainContentArea">
+      <div id="contentBox">
             <!-- Heading -->
-            <tr>
-                <H1 style="color: black; text-align: center;"> LL1 Parser </H1>
-            </tr>
-            <tr>
-                <p style="font-size: small;">
+            <div id="headingBox"> 
+              <div class="Title">LL1 Parser</div>
+                <div class="pageContent">
+                  <p>
                     The Grammar uses the following form: <br/>
                     Productions must be in the form of 'Non-Terminal' ::= 'Production'<br/>
-                    Non-Terminal's must be single uppercase Letters. (ie: A, B, C)<br/>
                     Epsilon is represented by a lowercase 'e'<br/>
                     The right hand side of the production may contain: Non-terminals, Terminals, or epsilon<br/>
-                    Spaces are ignored in the right-hand side of a production rule 
+                    Spaces can be used to separate symbols in the right hand side of a production 
                     The '|' symbol can be used in the right hand side of the production as a short hand.<br/>
                     Ie:<br/>
                         D ::= B | C is short-hand for<br/>
                             D ::= B<br/>
                             D ::= C<br/>
-                </p>
-            </tr>
-            <!-- Grammar Input / Production Table -->
-            <tr>
-                <!-- User Grammar Input Box -->
-                <td style="border: 0px solid black;width:50%">
-                    <table style="color: black; border: 2px solid black; background-color: #e4e3e3; width: 100%;">
-                        <caption style="color: black; font-size: medium; border: 2px solid black;background-color: #e4e3e3;">Grammar</caption>
-                        <tr style="width: max-content; text-align: center;">
-                            <td style="align-items: center;">
-                                <textarea name="UserGrammar" id="UserGrammar" style="width:95%;" rows="10"></textarea>
-                            </td>
-                            <!-- Start Buttons -->
-                            <td style="width:10%; border:none;">
-                                <button onclick="startParser()" id="userGrammarButton">=></button>   <BR> <BR> <BR>
-                                <button onclick="randomGrammar()" id="RandomButton">Random</button>
-                            </td>
-                        </tr>
-                    </table>
-                </td>
-                <!-- Grammar Production's Table  -->
-                <td id="GrammarProductionColumn" style="border:1;"></td>
-            </tr>
+                    </p>
+                </div>
+            </div>
+      </div>
+      <!-- Grammar Input / Production Table -->
+      <div id="grammarProductionArea">
+        <table id="Table_1" class="ignore-css" style="width:100%; border:none;" cellspacing="15" cellpadding="5">
+          <tr>
+              <!-- User Grammar Input Box -->
+              <td style="border: 0px solid black;width:50%">
+                  <table style="color: black; border: 2px solid black; background-color: #e4e3e3; width: 100%;">
+                      <caption style="color: black; font-size: medium; border: 2px solid black;background-color: #e4e3e3;">Grammar</caption>
+                      <tr style="width: max-content; text-align: center;">
+                          <td style="align-items: center;">
+                              <textarea name="UserGrammar" id="UserGrammar" style="width:95%;" rows="10"></textarea>
+                          </td>
+                          <!-- Start Buttons -->
+                          <td style="width:10%; border:none;">
+                              <button onclick="startParser()" id="userGrammarButton">=></button>   <BR> <BR> <BR>
+                              <button onclick="randomGrammar()" id="RandomButton">Random</button>
+                          </td>
+                      </tr>
+                  </table>
+              </td>
+              <!-- Grammar Production's Table  -->
+              <td id="GrammarProductionColumn" style="border:1;"></td>
+          </tr>
         </table>
-        <table id="MessageTable">
+      </div>
+      <div id="MessageTable" class="MessageTable">
             <!-- Message/Hint box -->
-            <tr style="column-span: all; padding: 0%;">
-                <td style="border:none;" colspan="3">
-                    <table class="ignore-css" style="width:100%; border: 1px solid black;" cellspacing="0" cellpadding="0">
-                        <tr><td>
-                            <h6 id="Instructions"></h6>
-                        </td></tr>
-                    </table>
-                </td>
-            </tr>
-      </table>
+            <!-- <tr>
+                <td style="border: 1px solid black; background-color: #e4e3e3;"> -->
+                    <!-- <table style="width:100%; border: 1px solid black;" cellspacing="0" cellpadding="0">
+                        <tr><td> -->
+                            <h6 id="Instructions" style="padding-left: 10px;"></h6>
+                        <!-- </td></tr>
+                    </table> -->
+                <!-- </td>
+            </tr> -->
+        </table>
+      </div>
+      <div id="LL1 Tables">
       <br>
       <!-- First Table -->
-      <div id="firstTableDiv" style="align-content: center; align-items: center;"></div>
+      <div class="firstTableDiv" id="firstTableDiv" style="align-content: center; align-items: center;"></div>
       <br>
       <!-- Follow Table -->
-      <div id="followTableDiv"></div>
-
-    </body>
-    <!-- Parser JS Logic -->
-    <script src="build/parser.js"></script>
-    <script>setup()</script>
-
+      <div class="followTableDiv" id="followTableDiv"></div>
+      </div>
+    </div>
+  </body>
+  <!-- Parser JS Logic -->
+  <script src="build/parser.js"></script>
+  <script>setup()</script>
 </html>
