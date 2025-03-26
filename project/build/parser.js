@@ -422,18 +422,18 @@ class ProductionTable {
 function resetError() {
     errorState = false;
     setInstructionValue("", true);
-    const body = document.getElementById("BODY");
-    body.style.backgroundColor = HTMLColors.defaultColor;
     var instructions = document.getElementById(messageTableID);
     instructions.style.color = HTMLColors.textColor;
+    var messageBox = document.getElementById(messageParent);
+    messageBox.style.backgroundColor = HTMLColors.softGreyColor;
 }
 // Error state caused by a left recursion
 function leftRecursionError() {
     setInstructionValue("", true);
-    const body = document.getElementById("BODY");
-    body.style.backgroundColor = HTMLColors.errorColor;
     var instructions = document.getElementById(messageTableID);
     instructions.style.color = HTMLColors.defaultColor;
+    var messageBox = document.getElementById(messageParent);
+    messageBox.style.backgroundColor = HTMLColors.errorColor;
     setErrorValue("Cannot Continue! The Language is not LL(1) Parsable!");
     firstTable.disableAllCells();
     followTable.disableAllCells();
@@ -1125,6 +1125,7 @@ class FollowTable {
             this.rulesTable.setAttribute("id", followRulesID);
             this.rulesTable.style.border = "2px solid black";
             this.rulesTable.style.backgroundColor = HTMLColors.defaultColor;
+            this.rulesTable.style.paddingTop = '10px';
             // Add header
             var rulesHeader = document.createElement("caption");
             rulesHeader.textContent = "Follow Rules";
@@ -1525,6 +1526,7 @@ class FollowTable {
         }
     }
 }
+var first_pass = true;
 // Check the progress of the current step, advancing if necessary
 function checkProgress(delayInstruction = true) {
     if (errorState == true) {
@@ -1565,7 +1567,13 @@ function checkProgress(delayInstruction = true) {
                 if (productionTable.selectedProduction != null) {
                     productionTable.setProductionRowEnable(productionTable.selectedProduction, false);
                 }
-                setInstructionValue("Correct, Now select another production that can produce epsilon directly.");
+                if (first_pass == true) {
+                    setInstructionValue("Select a production from the Production Table that can produce epsilon directly.");
+                    first_pass = false;
+                }
+                else {
+                    setInstructionValue("Correct, Now select another production that can produce epsilon directly.");
+                }
             }
             break;
         case Steps.ENTER_EPSILON_FROM_EPSILON:
@@ -2210,6 +2218,7 @@ function startParser() {
         followTable.render();
         setInstructionValue("Select a production that can produce epsilon directly.");
         setErrorValue("");
+        first_pass = true;
         checkProgress();
     }
 }
