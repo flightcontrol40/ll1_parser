@@ -1,0 +1,92 @@
+body
+{
+  background: white;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  line-height: 150%;
+  text-align: left;
+}
+
+*
+{
+  font-size: 8pt; 
+  font-family: Tahoma, Verdana, sans-serif; 
+  color: #000000;
+  text-align: left;
+}
+
+/* === Containers === */
+.mainContentArea{
+    margin-left:15px;
+    margin-right:15px;
+    width: 100%;
+    height: auto;
+
+}
+#contentBox
+{
+    padding-top: 2%;
+    margin-left:15px;
+    margin-right:15px;
+    margin-bottom:12px;
+}
+.Title
+{
+    font-family:Verdana, Arial, Helvetica, sans-serif;
+    color:#213E74;
+    font-size:19px;
+    padding-top: 25px;
+    margin-left:15px;
+    margin-right:12px;
+    margin-bottom:12px;
+}
+
+.pageContent
+{
+    font-family: Arial, Helvetica, sans-serif;
+    color:#000000;
+    font-size:12px;
+    margin-left:20px;
+    margin-right:20px;
+}
+
+
+#headingBox
+{
+    background-color:#e4e3e3;
+    padding-bottom: 10px;
+}
+
+.grammarProductionArea
+{
+    background-color:#FFFFFF;
+    margin-left:15px;
+    margin-right:15px;
+}
+
+.MessageTable
+{
+    margin-left:15px;
+    margin-right:2%;
+    border: 2px solid black;
+    background-color: #e4e3e3;
+    width: auto;
+    overflow: hidden;
+}
+
+.firstTableDiv
+{
+    width: 98%;
+    margin-left:15px;
+}
+.followTableDiv
+{
+    width: 98%;
+    margin-left:15px;
+}
+
+html, body {
+text-align: center;
+}
+p {text-align: left;}

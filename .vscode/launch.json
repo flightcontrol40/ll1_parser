@@ -18,17 +18,9 @@
             "type": "msedge",
             "request": "launch",
             "name": "Launch Edge - parser",
-            "preLaunchTask": "tsc: Typescript to JS",
+            // "preLaunchTask": "tsc: Typescript to JS",
             "url": "${workspaceFolder}\\project\\index.html",
             "webRoot": "${workspaceFolder}\\project"
-          },
-          {
-            "type": "msedge",
-            "request": "launch",
-            "name": "Launch Edge - Follow",
-            "preLaunchTask": "tsc: Typescript to JS",
-            "url": "${workspaceFolder}\\project\\FollowTableStartingPointTest.html",
-            "webRoot": "${workspaceFolder}\\project"
-          },
+          }
     ]
 }
