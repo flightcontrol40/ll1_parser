@@ -55,7 +55,8 @@ enum CellAttr {
     needsSimplified = "data-NeedsSimplified",
     needsFilled = "data-NeedsFilled",
     parentCellCol = "data-ParentCellCol",
-    childCellCol = "data-ChildCellCol"
+    childCellCol = "data-ChildCellCol",
+    prodRuleData = "data-ProductionRuleData"
 }
 
 // Steps enum
@@ -522,7 +523,7 @@ function leftRecursionError(){
     instructions.style.color = HTMLColors.defaultColor;
     var messageBox = document.getElementById(messageParent) as HTMLDivElement;
     messageBox.style.backgroundColor = HTMLColors.errorColor
-    setErrorValue("Cannot Continue! The Language is not LL(1) Parsable!")
+    setErrorValue("Left Recursion Detected, Cannot Continue! The Grammar is not LL(1) Parsable!")
     firstTable.disableAllCells();
     followTable.disableAllCells();
     productionTable.disableAllRows();
@@ -988,12 +989,6 @@ class FirstTable {
                             currentParentColsArray.push(columnLabel);
                             childCellData.attributes.set(CellAttr.parentCellCol, JSON.stringify(currentParentColsArray));
                             this.setCell(rowLabel, childSymbol, childCellData);
-                        // }
-                        // else {
-                        //     if (childCellData.data != selectedCellData.data){
-
-                        //     }
-                        // }
                     }
                     // Mark the list of child cells that need to be filled for this cell
                     // to be complete
@@ -1354,6 +1349,35 @@ class FollowTable {
         }
     }
 
+    setCellAttr(rowLabel: string, columnLabel: string, attr:string, value:string){
+        var cellData = this.tableData.get(rowLabel)?.get(columnLabel);
+        if (cellData == null){
+            cellData = {
+                color: HTMLColors.defaultColor,
+                enabled: true,
+                data: emptyCell,
+                attributes: new Map()
+            }
+        }
+        cellData.attributes.set(attr, value);
+        this.tableData.get(rowLabel)?.set(columnLabel, cellData);
+    }
+
+    deleteCellAttr(rowLabel: string, columnLabel: string, attr:string){
+        var cellData = this.tableData.get(rowLabel)?.get(columnLabel);
+        if (cellData == null){
+            cellData = {
+                color: HTMLColors.defaultColor,
+                enabled: true,
+                data: emptyCell,
+                attributes: new Map()
+            }
+        }
+        cellData.attributes.delete(attr);
+        this.tableData.get(rowLabel)?.set(columnLabel, cellData);
+    }
+
+
     setCellEnable(rowLabel: string, columnLabel: string, enable:boolean){
         var cellData = this.tableData.get(rowLabel)?.get(columnLabel);
         if (cellData == null){
@@ -1527,17 +1551,30 @@ class FollowTable {
                         if (followCell.data != emptyCell){
                             continue;
                         }
+                        // Mark what data needs to be set in the follow child cell
+                        followCell.attributes.set(CellAttr.prodRuleData, selectedCellData.data);
                         // Enable and color the first table cell
                         firstTable.setCellColor(firstRowKey, firstColumnKey, HTMLColors.highlightColor);
                         firstTable.setCellEnable(firstRowKey, firstColumnKey, true);
                         // Add it to the solving follow set
                         this.solvingFollowSet.add(followChildColumnKey);
+                        
                     }
                 }
                 // Must be a child cell
                 else {
-                    // Disable, Color, and place an X in the cell
-                    followTable.setCellValue(rowLabel,columnLabel, "X");
+                    // Get the value that needs to be placed in this cell
+                    const fill_data = selectedCellData.attributes.get(CellAttr.prodRuleData);
+                    if (fill_data == null){
+                        console.error(
+                            "Could Not obtain production number to set in child cell\n",
+                            "Fill Data: ", fill_data,
+                            "\nSelected Cell: ", selectedCellData
+                        )
+                        break;
+                    }
+                    // Disable, Color, and place the prod number in the cell
+                    followTable.setCellValue(rowLabel,columnLabel, fill_data);
                     followTable.setCellColor(rowLabel, columnLabel, HTMLColors.disableColor);
                     followTable.setCellEnable(rowLabel,columnLabel, false);
                     // Disable and color the corresponding first table cell
@@ -1623,7 +1660,6 @@ class FollowTable {
                     var allAlreadyFilled = true;
                     // Get the columns that are set in that row
                     for(const [followValueColumnKey, c] of followValueRow.entries()){
-
                         if (c.data != emptyCell){
                             // Check if that cell is already completed
                             var followSet = grammar.followSets.get(rowLabel);
@@ -1637,6 +1673,7 @@ class FollowTable {
                             // Highlight and Enable the corresponding cell
                             this.setCellColor(rowLabel, followValueColumnKey, HTMLColors.highlightColor);
                             this.setCellEnable(rowLabel, followValueColumnKey, true);
+                            this.setCellAttr(rowLabel, followValueColumnKey,CellAttr.prodRuleData, selectedCellData.data)
                             // Add it to the current solve set
                             this.solvingFollowSet.add(followValueColumnKey);
                             allAlreadyFilled = false;
@@ -1667,10 +1704,22 @@ class FollowTable {
                 }
                 // Must be a child cell
                 else {
-                    // Disable, Color, and place an X in the cell
-                    followTable.setCellValue(rowLabel,columnLabel, "X");
+                    // Get the value that needs to be placed in this cell
+                    const fill_data = selectedCellData.attributes.get(CellAttr.prodRuleData);
+                    if (fill_data == null){
+                        console.error(
+                            "Could Not obtain production number to set in child cell\n",
+                            "Fill Data: ", fill_data,
+                            "\nSelected Cell: ", selectedCellData
+                        )
+                        break;
+                    }
+                    // Disable, Color, and place the prod number in the cell
+                    followTable.setCellValue(rowLabel,columnLabel, fill_data);
                     followTable.setCellColor(rowLabel, columnLabel, HTMLColors.disableColor);
                     followTable.setCellEnable(rowLabel,columnLabel, false);
+                    this.deleteCellAttr(rowLabel, columnLabel, CellAttr.prodRuleData);
+
                     // Remove it from the solving follow set and add it to grammar follow set
                     this.solvingFollowSet.delete(columnLabel);
                     var currentFollowSet = grammar.followSets.get(rowLabel);
@@ -1985,7 +2034,10 @@ function checkProgress(delayInstruction: boolean = true){
                                 }
                                 else if(symbolCell.data != cell.data){
                                     console.log("Left Recursion Detected in check")
-                                    // leftRecursionError();
+                                    notCompleted = true;
+                                    break;
+                                }
+                                else if (symbolCell.color == HTMLColors.highlightColor){
                                     notCompleted = true;
                                     break;
                                 }

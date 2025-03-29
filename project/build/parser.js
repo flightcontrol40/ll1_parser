@@ -55,6 +55,7 @@ var CellAttr;
     CellAttr["needsFilled"] = "data-NeedsFilled";
     CellAttr["parentCellCol"] = "data-ParentCellCol";
     CellAttr["childCellCol"] = "data-ChildCellCol";
+    CellAttr["prodRuleData"] = "data-ProductionRuleData";
 })(CellAttr || (CellAttr = {}));
 // Steps enum
 var Steps;
@@ -102,6 +103,7 @@ var FollowRules = new Map([
     [FollowRuleType.NON_TERMINAL_FOLLOWS, "A non-terminal followed by a non-terminal."],
     [FollowRuleType.END_OF_PRODUCTION, "A non-terminal at the end of a production."],
 ]);
+var first_pass = true;
 ////////////////////////////////////////////////////////////////////////////////
 //  HTML Helper Functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -434,7 +436,7 @@ function leftRecursionError() {
     instructions.style.color = HTMLColors.defaultColor;
     var messageBox = document.getElementById(messageParent);
     messageBox.style.backgroundColor = HTMLColors.errorColor;
-    setErrorValue("Cannot Continue! The Language is not LL(1) Parsable!");
+    setErrorValue("Left Recursion Detected, Cannot Continue! The Grammar is not LL(1) Parsable!");
     firstTable.disableAllCells();
     followTable.disableAllCells();
     productionTable.disableAllRows();
@@ -857,11 +859,6 @@ class FirstTable {
                         currentParentColsArray.push(columnLabel);
                         childCellData.attributes.set(CellAttr.parentCellCol, JSON.stringify(currentParentColsArray));
                         this.setCell(rowLabel, childSymbol, childCellData);
-                        // }
-                        // else {
-                        //     if (childCellData.data != selectedCellData.data){
-                        //     }
-                        // }
                     }
                     // Mark the list of child cells that need to be filled for this cell
                     // to be complete
@@ -1178,6 +1175,34 @@ class FollowTable {
             parent === null || parent === void 0 ? void 0 : parent.appendChild(this.rulesTable);
         }
     }
+    setCellAttr(rowLabel, columnLabel, attr, value) {
+        var _a, _b;
+        var cellData = (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.get(columnLabel);
+        if (cellData == null) {
+            cellData = {
+                color: HTMLColors.defaultColor,
+                enabled: true,
+                data: emptyCell,
+                attributes: new Map()
+            };
+        }
+        cellData.attributes.set(attr, value);
+        (_b = this.tableData.get(rowLabel)) === null || _b === void 0 ? void 0 : _b.set(columnLabel, cellData);
+    }
+    deleteCellAttr(rowLabel, columnLabel, attr) {
+        var _a, _b;
+        var cellData = (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.get(columnLabel);
+        if (cellData == null) {
+            cellData = {
+                color: HTMLColors.defaultColor,
+                enabled: true,
+                data: emptyCell,
+                attributes: new Map()
+            };
+        }
+        cellData.attributes.delete(attr);
+        (_b = this.tableData.get(rowLabel)) === null || _b === void 0 ? void 0 : _b.set(columnLabel, cellData);
+    }
     setCellEnable(rowLabel, columnLabel, enable) {
         var _a, _b;
         var cellData = (_a = this.tableData.get(rowLabel)) === null || _a === void 0 ? void 0 : _a.get(columnLabel);
@@ -1346,6 +1371,8 @@ class FollowTable {
                         if (followCell.data != emptyCell) {
                             continue;
                         }
+                        // Mark what data needs to be set in the follow child cell
+                        followCell.attributes.set(CellAttr.prodRuleData, selectedCellData.data);
                         // Enable and color the first table cell
                         firstTable.setCellColor(firstRowKey, firstColumnKey, HTMLColors.highlightColor);
                         firstTable.setCellEnable(firstRowKey, firstColumnKey, true);
@@ -1355,8 +1382,14 @@ class FollowTable {
                 }
                 // Must be a child cell
                 else {
-                    // Disable, Color, and place an X in the cell
-                    followTable.setCellValue(rowLabel, columnLabel, "X");
+                    // Get the value that needs to be placed in this cell
+                    const fill_data = selectedCellData.attributes.get(CellAttr.prodRuleData);
+                    if (fill_data == null) {
+                        console.error("Could Not obtain production number to set in child cell\n", "Fill Data: ", fill_data, "\nSelected Cell: ", selectedCellData);
+                        break;
+                    }
+                    // Disable, Color, and place the prod number in the cell
+                    followTable.setCellValue(rowLabel, columnLabel, fill_data);
                     followTable.setCellColor(rowLabel, columnLabel, HTMLColors.disableColor);
                     followTable.setCellEnable(rowLabel, columnLabel, false);
                     // Disable and color the corresponding first table cell
@@ -1452,6 +1485,7 @@ class FollowTable {
                             // Highlight and Enable the corresponding cell
                             this.setCellColor(rowLabel, followValueColumnKey, HTMLColors.highlightColor);
                             this.setCellEnable(rowLabel, followValueColumnKey, true);
+                            this.setCellAttr(rowLabel, followValueColumnKey, CellAttr.prodRuleData, selectedCellData.data);
                             // Add it to the current solve set
                             this.solvingFollowSet.add(followValueColumnKey);
                             allAlreadyFilled = false;
@@ -1476,10 +1510,17 @@ class FollowTable {
                 }
                 // Must be a child cell
                 else {
-                    // Disable, Color, and place an X in the cell
-                    followTable.setCellValue(rowLabel, columnLabel, "X");
+                    // Get the value that needs to be placed in this cell
+                    const fill_data = selectedCellData.attributes.get(CellAttr.prodRuleData);
+                    if (fill_data == null) {
+                        console.error("Could Not obtain production number to set in child cell\n", "Fill Data: ", fill_data, "\nSelected Cell: ", selectedCellData);
+                        break;
+                    }
+                    // Disable, Color, and place the prod number in the cell
+                    followTable.setCellValue(rowLabel, columnLabel, fill_data);
                     followTable.setCellColor(rowLabel, columnLabel, HTMLColors.disableColor);
                     followTable.setCellEnable(rowLabel, columnLabel, false);
+                    this.deleteCellAttr(rowLabel, columnLabel, CellAttr.prodRuleData);
                     // Remove it from the solving follow set and add it to grammar follow set
                     this.solvingFollowSet.delete(columnLabel);
                     var currentFollowSet = grammar.followSets.get(rowLabel);
@@ -1529,7 +1570,6 @@ class FollowTable {
         }
     }
 }
-var first_pass = true;
 // Check the progress of the current step, advancing if necessary
 function checkProgress(delayInstruction = true) {
     if (errorState == true) {
@@ -1757,7 +1797,10 @@ function checkProgress(delayInstruction = true) {
                                 }
                                 else if (symbolCell.data != cell.data) {
                                     console.log("Left Recursion Detected in check");
-                                    // leftRecursionError();
+                                    notCompleted = true;
+                                    break;
+                                }
+                                else if (symbolCell.color == HTMLColors.highlightColor) {
                                     notCompleted = true;
                                     break;
                                 }
