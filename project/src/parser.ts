@@ -32,7 +32,7 @@ const messageParent="MessageTable"
 const headingTable="Table_1"
 const emptyCell = ".";
 const defaultGrammar = [
-    "K ::= R",
+    "D ::= R",
     "R ::= B C",
     "B ::= +",
     "B ::= e",
@@ -80,7 +80,6 @@ enum FollowRuleType {
     FOLLOW_SIMPLIFY       = 3,
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
 // Global Variables
 ////////////////////////////////////////////////////////////////////////////////
@@ -105,6 +104,7 @@ var FollowRules: Map<FollowRuleType, string> = new Map([
     [FollowRuleType.NON_TERMINAL_FOLLOWS, "A non-terminal followed by a non-terminal."],
     [FollowRuleType.END_OF_PRODUCTION, "A non-terminal at the end of a production."],
 ])
+var first_pass = true;
 
 ////////////////////////////////////////////////////////////////////////////////
 //  HTML Helper Functions
@@ -532,7 +532,6 @@ function leftRecursionError(){
     followTable.render();
     productionTable.render();
 }
-
 
 // Class for interacting with the first table
 class FirstTable {
@@ -1726,7 +1725,6 @@ class FollowTable {
     }
 }
 
-var first_pass = true;
 // Check the progress of the current step, advancing if necessary
 function checkProgress(delayInstruction: boolean = true){
     if (errorState == true){
@@ -2504,7 +2502,6 @@ function setup(){
     currentStep = Steps.ENTER_GRAMMAR;
     setInstructionValue("Enter a grammar and hit the => to start, Or select Random.")
 }
-
 
 function generateRandomCharacter(alphabet: string): string {
     const randomIndex = Math.floor(Math.random() * alphabet.length * alphabet.length) % alphabet.length;
