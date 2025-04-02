@@ -31,6 +31,9 @@ const messageTableID = "Instructions"
 const messageParent="MessageTable"
 const headingTable="Table_1"
 const emptyCell = ".";
+const nullableColumnKey = "Nullable";
+const leftRecursionErrorStr = "Left Recursion Detected, Cannot Continue! The Grammar is not LL(1) Parsable!";
+const unparsableGrammarErrorStr = "The Grammar is not LL(1) Parsable!";
 const defaultGrammar = [
     "D ::= R",
     "R ::= B C",
@@ -56,7 +59,8 @@ enum CellAttr {
     needsFilled = "data-NeedsFilled",
     parentCellCol = "data-ParentCellCol",
     childCellCol = "data-ChildCellCol",
-    prodRuleData = "data-ProductionRuleData"
+    prodRuleData = "data-ProductionRuleData",
+    styleOverride = 'data-StyleOverride'
 }
 
 // Steps enum
@@ -70,7 +74,9 @@ enum Steps {
     FIND_FOLLOWS                    = 5,
     FIND_FOLLOWS_COMPUTED_FIRSTS    = 6,
     FIND_FOLLOWS_COMPUTED_FOLLOWS   = 7,
-    DONE                            = 8
+    PLACE_FOLLOW_EPSILON_NUMBERS    = 8,
+    CREATE_FINAL_TABLE              = 9,
+    DONE                            = 10
 };
 
 enum FollowRuleType {
@@ -517,13 +523,13 @@ function resetError(){
 }
 
 // Error state caused by a left recursion
-function leftRecursionError(){
+function grammarUnparsableError(errorStr: string){
     setInstructionValue("", true);
     var instructions = document.getElementById(messageTableID) as HTMLHeadingElement;
     instructions.style.color = HTMLColors.defaultColor;
     var messageBox = document.getElementById(messageParent) as HTMLDivElement;
     messageBox.style.backgroundColor = HTMLColors.errorColor
-    setErrorValue("Left Recursion Detected, Cannot Continue! The Grammar is not LL(1) Parsable!")
+    setErrorValue(errorStr)
     firstTable.disableAllCells();
     followTable.disableAllCells();
     productionTable.disableAllRows();
@@ -542,6 +548,7 @@ class FirstTable {
     rows: string[];
     table: HTMLTableElement;
     tableData: Map<string,Map<string,CellData>>;
+    tableHeaderStr: string = "First Table";
 
     constructor(grammar: Grammar){
         this.parentID = firstTableDiv;
@@ -607,7 +614,7 @@ class FirstTable {
         this.table.style.backgroundColor = HTMLColors.defaultColor;
         // Add header
         var header = document.createElement("caption");
-        header.textContent = "First Table";
+        header.textContent = this.tableHeaderStr
         header.style.textAlign = "center";
         header.style.fontSize = "large";
         header.style.border = "2px solid black";
@@ -627,7 +634,9 @@ class FirstTable {
                 var cell = document.createElement("TD") as HTMLTableCellElement;
                 cell.style.color = "black";
                 newRow.appendChild(cell);
-                cell.style.width = "50px";
+                cell.style.minWidth = "50px";
+                cell.style.paddingLeft = "8px";
+                cell.style.paddingRight = "8px";
                 cell.style.border = "1px solid black";
                 // Check if this is the header row
                 if (r == 0){
@@ -975,8 +984,12 @@ class FirstTable {
                         if (childCellData == null){
                             continue;
                         }
-                        // if (childCellData.data == emptyCell){
-                            // Need to be filled, Highlight the cell, set attrs
+                        // Check for a double fill of epsilon
+                        if (childSymbol == epsilon){
+                            if (childCellData.data != emptyCell){
+                                continue;
+                            }
+                        }
                             childCellData.color = HTMLColors.highlightColor
                             childCellData.enabled = true;
                             childCellCols.push(childSymbol);
@@ -1012,7 +1025,7 @@ class FirstTable {
                     // Check for left Recursion
                     if (selectedCellData.data != emptyCell && selectedCellData.data != fillData){
                         if (selectedCellData.data != fillData){
-                            leftRecursionError()
+                            grammarUnparsableError(leftRecursionErrorStr)
                             return;
                         }
                     }
@@ -1096,6 +1109,38 @@ class FirstTable {
                 followTable.render();
                 firstTable.render();
                 break;
+            
+            case Steps.CREATE_FINAL_TABLE:
+                if (selectedCellData == null){
+                    break;
+                }
+
+                // Get the value from the selected follow table cell
+                const followCellInfo = followTable.selectedCell;
+                if (followCellInfo == null){
+                    break;
+                }
+                const selectedFollowCell = followTable.getCell(followCellInfo.rowLabel, followCellInfo.columnLabel)
+                if (selectedFollowCell == null){
+                    break;
+                }
+                // Check if there is already different a value in this cell
+                if (selectedCellData.data != emptyCell && selectedCellData.data != selectedCellData.data){
+                    grammarUnparsableError(unparsableGrammarErrorStr);
+                }
+                // Set the value disable both cells
+                selectedCellData.data = selectedFollowCell.data;
+                selectedCellData.color = HTMLColors.disableColor;
+                selectedCellData.enabled = false;
+                selectedFollowCell.color = HTMLColors.disableColor;
+                selectedFollowCell.enabled = false;
+                followTable.selectedCell = null;
+                setInstructionValue("Good Now select another value in the follow table.")
+                this.render();
+                followTable.render();
+                checkProgress()
+                break;
+
             default:
                 break;
         }
@@ -1164,7 +1209,7 @@ class FollowTable {
             this.tableData.set(row, newColumn);
         })
         // By default set S,$, and add it to the follow set
-        this.setCellValue("S","$", "1");
+        this.setCellValue("S","$", "X");
         grammar.followSets.set("S", new Set("$"));
         this.render();
     }
@@ -1228,7 +1273,9 @@ class FollowTable {
                 var cell = document.createElement("TD") as HTMLTableCellElement;
                 cell.style.color = "black";
                 newRow.appendChild(cell);
-                cell.style.width = "50px";
+                cell.style.minWidth = "50px";
+                cell.style.paddingLeft = "8px";
+                cell.style.paddingRight = "8px";
                 cell.style.border = "1px solid black";
                 // Check if this is the header row
                 if (r == 0){
@@ -1253,8 +1300,7 @@ class FollowTable {
                         cell.style.backgroundColor = HTMLColors.softGreyColor;
                     }
                     else {
-                        cell.parentNode
-                        // Build first table cell locations
+                        // Build follow table cell locations
                         cell.setAttribute("data-column", this.columns[c-1]);
                         var cellData = this.tableData.get(this.rows[r-1])?.get(this.columns[c-1]);
                         if (cellData == null){
@@ -1276,6 +1322,17 @@ class FollowTable {
                             this._setTableCellCallback(
                                 cell, this, this.rows[r-1], this.columns[c-1]
                             )
+                        }
+                        // Override Style
+                        if (cellData.attributes.has(CellAttr.styleOverride)){
+                            const overrides = cellData.attributes.get(CellAttr.styleOverride);
+                            console.log("Cell Overrides: ", overrides);
+                            if (overrides != null){
+                                const overridesMap = JSON.parse(overrides) as Map<string,string>;
+                                for (const [key, value] of Object.entries(overridesMap)){
+                                    cell.style.setProperty(key, value);
+                                }
+                            }
                         }
                     }
                 }
@@ -1492,8 +1549,8 @@ class FollowTable {
                 if (productionTable.selectedProduction == null){
                     break;
                 }
-                
-                selectedCellData.data = productionTable.selectedProduction.toString()
+                selectedCellData.data = 'X'
+                // selectedCellData.data = productionTable.selectedProduction.toString()
                 this.setCell(rowLabel, columnLabel, selectedCellData);
                 // Add it to the follow set
                 var followSet = grammar.followSets.get(rowLabel);
@@ -1551,8 +1608,8 @@ class FollowTable {
                         if (followCell.data != emptyCell){
                             continue;
                         }
-                        // Mark what data needs to be set in the follow child cell
-                        followCell.attributes.set(CellAttr.prodRuleData, selectedCellData.data);
+                        // // Mark what data needs to be set in the follow child cell
+                        // followCell.attributes.set(CellAttr.prodRuleData, selectedCellData.data);
                         // Enable and color the first table cell
                         firstTable.setCellColor(firstRowKey, firstColumnKey, HTMLColors.highlightColor);
                         firstTable.setCellEnable(firstRowKey, firstColumnKey, true);
@@ -1563,18 +1620,18 @@ class FollowTable {
                 }
                 // Must be a child cell
                 else {
-                    // Get the value that needs to be placed in this cell
-                    const fill_data = selectedCellData.attributes.get(CellAttr.prodRuleData);
-                    if (fill_data == null){
-                        console.error(
-                            "Could Not obtain production number to set in child cell\n",
-                            "Fill Data: ", fill_data,
-                            "\nSelected Cell: ", selectedCellData
-                        )
-                        break;
-                    }
+                    // // Get the value that needs to be placed in this cell
+                    // const fill_data = selectedCellData.attributes.get(CellAttr.prodRuleData);
+                    // if (fill_data == null){
+                    //     console.error(
+                    //         "Could Not obtain production number to set in child cell\n",
+                    //         "Fill Data: ", fill_data,
+                    //         "\nSelected Cell: ", selectedCellData
+                    //     )
+                    //     break;
+                    // }
                     // Disable, Color, and place the prod number in the cell
-                    followTable.setCellValue(rowLabel,columnLabel, fill_data);
+                    followTable.setCellValue(rowLabel,columnLabel, 'X');
                     followTable.setCellColor(rowLabel, columnLabel, HTMLColors.disableColor);
                     followTable.setCellEnable(rowLabel,columnLabel, false);
                     // Disable and color the corresponding first table cell
@@ -1673,7 +1730,7 @@ class FollowTable {
                             // Highlight and Enable the corresponding cell
                             this.setCellColor(rowLabel, followValueColumnKey, HTMLColors.highlightColor);
                             this.setCellEnable(rowLabel, followValueColumnKey, true);
-                            this.setCellAttr(rowLabel, followValueColumnKey,CellAttr.prodRuleData, selectedCellData.data)
+                            // this.setCellAttr(rowLabel, followValueColumnKey,CellAttr.prodRuleData, selectedCellData.data)
                             // Add it to the current solve set
                             this.solvingFollowSet.add(followValueColumnKey);
                             allAlreadyFilled = false;
@@ -1705,20 +1762,20 @@ class FollowTable {
                 // Must be a child cell
                 else {
                     // Get the value that needs to be placed in this cell
-                    const fill_data = selectedCellData.attributes.get(CellAttr.prodRuleData);
-                    if (fill_data == null){
-                        console.error(
-                            "Could Not obtain production number to set in child cell\n",
-                            "Fill Data: ", fill_data,
-                            "\nSelected Cell: ", selectedCellData
-                        )
-                        break;
-                    }
+                    // const fill_data = selectedCellData.attributes.get(CellAttr.prodRuleData);
+                    // if (fill_data == null){
+                    //     console.error(
+                    //         "Could Not obtain production number to set in child cell\n",
+                    //         "Fill Data: ", fill_data,
+                    //         "\nSelected Cell: ", selectedCellData
+                    //     )
+                    //     break;
+                    // }
                     // Disable, Color, and place the prod number in the cell
-                    followTable.setCellValue(rowLabel,columnLabel, fill_data);
+                    followTable.setCellValue(rowLabel,columnLabel, 'X');
                     followTable.setCellColor(rowLabel, columnLabel, HTMLColors.disableColor);
                     followTable.setCellEnable(rowLabel,columnLabel, false);
-                    this.deleteCellAttr(rowLabel, columnLabel, CellAttr.prodRuleData);
+                    // this.deleteCellAttr(rowLabel, columnLabel, CellAttr.prodRuleData);
 
                     // Remove it from the solving follow set and add it to grammar follow set
                     this.solvingFollowSet.delete(columnLabel);
@@ -1749,6 +1806,81 @@ class FollowTable {
                         )
                     }
                 }
+                break;
+
+            case Steps.PLACE_FOLLOW_EPSILON_NUMBERS:
+                // Check if this is the nullable column
+                if (columnLabel == nullableColumnKey){
+                    // Disable all cells
+                    this.disableAllCells();
+                    this.colorAllCells(HTMLColors.disableColor);
+                    // Set this ones color back to red
+                    this.setCellColor(rowLabel, columnLabel, HTMLColors.errorColor);
+                    // Enable and highlight all cells in this row that aren't empty
+                    for (const currentColumn of this.columns.values()){
+                        if (currentColumn == nullableColumnKey){
+                            continue;
+                        }
+                        const child = this.getCell(rowLabel, currentColumn);
+                        if (child == null){
+                            continue;
+                        }
+                        if (child.data != emptyCell){
+                            // Highlight and enable
+                            child.enabled = true;
+                            child.color = HTMLColors.highlightColor;
+                        }
+                    }
+                    setInstructionValue(
+                        "Now copy the production rule's number to every cell set in this row."
+                    )
+                }
+                else {
+                    // Child Cell, Update the value
+                    const nullColumn = this.getCell(rowLabel, nullableColumnKey);
+                    if (nullColumn == null){
+                        break;
+                    }
+                    selectedCellData.data = nullColumn.data;
+                    selectedCellData.color = HTMLColors.disableColor;
+                    selectedCellData.enabled = false;
+                    const rowData = followTable.tableData.get(rowLabel);
+                    if (rowData == null){
+                        break;
+                    }
+                    var rowComplete = true;
+                    for (const [otherColumn, otherCell] of rowData.entries()){
+                        if (otherCell.data == "X"){
+                            rowComplete =false;
+                            break;
+                        }
+                    }
+                    if (rowComplete){
+                        setInstructionValue("Good Now Select Another Nullable Row.")
+                    }
+                }
+                break;
+
+            case Steps.CREATE_FINAL_TABLE:
+                if (this.selectedCell != null){
+                    // Disable the corresponding first table cell
+                    firstTable.setCellColor(this.selectedCell.rowLabel, this.selectedCell.rowLabel, HTMLColors.disableColor);
+                    firstTable.setCellEnable(this.selectedCell.rowLabel, this.selectedCell.rowLabel, false);
+                }
+                this.selectedCell = {rowLabel: rowLabel, columnLabel: columnLabel}
+                // Select the corresponding first table cell
+                const firstTableCell = firstTable.getCell(rowLabel, columnLabel);
+                if (firstTableCell == null){
+                    console.error("Could not get first table cell!")
+                    break;
+                }
+                // Enable it
+                firstTableCell.color = HTMLColors.highlightColor;
+                firstTableCell.enabled = true;
+                // Render first table
+                firstTable.render();
+                setInstructionValue("Now place this cell in the matching cell in the First Table.")
+
                 break;
 
             default:
@@ -2316,10 +2448,134 @@ function checkProgress(delayInstruction: boolean = true){
                 firstTable.colorAllCells(HTMLColors.defaultColor);
 
                 // Mark as done
-                currentStep = Steps.FIND_FOLLOWS_COMPUTED_FOLLOWS
+                currentStep = Steps.PLACE_FOLLOW_EPSILON_NUMBERS
                 setInstructionValue(
-                    "Good Job, The First and Follow tables are now complete!"
+                    [
+                        "Good Job, The First and Follow tables are now complete! ",
+                        "Now We will place the production rules # that are nullable ",
+                        "in the follow table to see what follow table values we will need.",
+                        " The Epsilon Column from the first table is what determines if a ",
+                        "Production is nullable. It has been copied to the follow table for now. ",
+                        "Select A highlighted Nullable cell to begin."
+                    ].join('')
                 )
+                prepForFollowIdxPlacement();
+
+            }
+            break;
+
+        case Steps.PLACE_FOLLOW_EPSILON_NUMBERS:
+            // Verify that all Nullable rows have their indexes placed
+            var done = true;
+            for (const rowKey of followTable.rows.values()){
+                // Check if this row is nullable
+                const nullColumn = followTable.getCell(rowKey, nullableColumnKey);
+                if (nullColumn == null){
+                    continue;
+                }
+                if (nullColumn.data == emptyCell){
+                    continue;
+                }
+                var rowComplete = true;
+                // Check all the columns for the correct index
+                for (const columnKey of followTable.columns.values()){
+                    if (columnKey == nullableColumnKey){
+                        continue;
+                    }
+                    const cellData = followTable.getCell(rowKey,columnKey);
+                    if (cellData == null){
+                        continue;
+                    }
+                    if (cellData.data == emptyCell){
+                        continue;
+                    }
+                    if (cellData.data != nullColumn.data){
+                        // Not Done
+                        done = false;
+                        rowComplete= false;
+                    }
+                }
+                if (rowComplete){
+                    // Disable the null column
+                    nullColumn.color = HTMLColors.disableColor;
+                    nullColumn.enabled = false;
+
+                }
+                else {
+                    nullColumn.color = HTMLColors.errorColor;
+                    nullColumn.enabled = true;
+                }
+            }
+            if (done == true){
+                // Update for next state
+                currentStep = Steps.CREATE_FINAL_TABLE
+                // Remove null column
+                let index = followTable.columns.indexOf(nullableColumnKey);
+                if (index > -1) {
+                    followTable.columns.splice(index, 1);
+                }
+                setInstructionValue(
+                    [
+                        "Now we can build the Final Production Table. ",
+                        "We will use the first table as our final production table. ",
+                        "To create the Final Production Table, we need to fill the ",
+                        "First table with the Follow Table Values. ",
+                        "Select a Follow Table Value to begin. "
+                    ].join('')
+                )
+                currentStep = Steps.CREATE_FINAL_TABLE
+                prepForFinalTableBuild();
+            }
+            break;
+
+        case Steps.CREATE_FINAL_TABLE:
+            // Check if all the follow table cells have been placed
+            var done = true;
+            for (const [rowKey, columnMap] of followTable.tableData) {
+                if (followTable.rows.indexOf(rowKey) == -1){
+                    continue;
+                }
+                for (const columnKey of followTable.columns.values()) {
+                    if (followTable.columns.indexOf(columnKey) == -1){
+                        continue
+                    }
+                    const cellData = columnMap.get(columnKey);
+                    if (cellData == null){
+                        continue
+                    }
+                    if (cellData.enabled == true){
+                        done = false;
+                        break;
+                    }
+                }
+            }
+            if (done){
+                currentStep = Steps.DONE;
+                // Hide the follow table
+                followTable.hidden = true
+                // Update the first table name
+                firstTable.tableHeaderStr = "Transition Table"
+                // Remove epsilon column from first table
+                let index = firstTable.columns.indexOf(epsilon);
+                if (index > -1) {
+                    firstTable.columns.splice(index, 1);
+                }
+                firstTable.colorAllCells(HTMLColors.defaultColor);
+                setInstructionValue("The Transition Table is now complete.")
+
+                // Fill the table with the actual production rules
+                for (const [rowKey, columnMap] of firstTable.tableData) {
+                    for (const columnKey of firstTable.columns.values()) {
+                        const cellData = columnMap.get(columnKey);
+                        if (cellData == null){
+                            continue
+                        }
+                        if (cellData.data != emptyCell){
+                            const prod = productionTable.productions[parseInt(cellData.data)]
+                            cellData.data = `${prod.rule.left} ::= ${prod.rule.right.join("")}`
+                        }
+                    }
+                }
             }
             break;
 
@@ -2512,6 +2768,81 @@ function prepForFollowSolve(){
     )
 }
 
+// Prepare the follow table for solving the nullable sets after it has been
+// completed
+function prepForFollowIdxPlacement(){
+    followTable.columns.push(nullableColumnKey);
+    // Render to create new column
+    followTable.render();
+    followTable.disableAllCells();
+    followTable.colorAllCells(HTMLColors.disableColor);
+    // Fill the data from the first table
+    for (const [rowKey, columnMap] of firstTable.tableData) {
+        const cellData = columnMap.get(epsilon)
+        var data = cellData?.data as string;
+        followTable.setCellValue(rowKey, nullableColumnKey, data)
+        // Add style override
+        const cellStyle = {
+            "border-left": "3px solid black",
+            "border-right": "3px solid black",
+            "border-collapse": "collapse"
+        }
+        followTable.setCellAttr(rowKey, nullableColumnKey, CellAttr.styleOverride, JSON.stringify(cellStyle))
+        if (data != emptyCell){
+            // Row will need to be filled
+            followTable.setCellColor(rowKey,nullableColumnKey, HTMLColors.errorColor);
+            followTable.setCellEnable(rowKey,nullableColumnKey, true);
+        }
+        else {
+            followTable.setCellColor(rowKey,nullableColumnKey, HTMLColors.disableColor);
+            followTable.setCellEnable(rowKey,nullableColumnKey, false);
+        }
+        console.log(rowKey, columnMap.get(epsilon));
+    }
+    followTable.render()
+
+}
+
+// Prepare to place the final values in the first table
+function prepForFinalTableBuild(){
+    // Render follow to flush values
+    followTable.render();
+    // Disable all cells in both tables
+    firstTable.disableAllCells();
+    firstTable.colorAllCells(HTMLColors.disableColor);
+    followTable.disableAllCells();
+    followTable.colorAllCells(HTMLColors.disableColor);
+    // Enable any cells in the follow table that have a value set
+    var removeRows: string[] = []
+    var rowNeeded = false;
+
+    for (const [rowKey, columnMap] of followTable.tableData) {
+        rowNeeded = false;
+        for (const columnKey of followTable.columns.values()) {
+            const cellData = columnMap.get(columnKey);
+            if (cellData == null){
+                continue
+            }
+            if (cellData.data == "X"){
+                continue
+            }
+            else if (cellData.data != emptyCell){
+                rowNeeded = true;
+                cellData.color = HTMLColors.errorColor;
+                cellData.enabled = true;
+            }
+        }
+        if (rowNeeded = false){
+            removeRows.push(rowKey);
+        }
+    }
+    // Remove un-needed rows
+    followTable.rows = followTable.rows.filter(item => !removeRows.includes(item));
+    followTable.render();
+    firstTable.render();
+}
+
+
 // Start the Parser and build the starting tables, OnClick function for the
 // grammar input box "=>" button
 function startParser(){
@@ -2640,3 +2971,25 @@ function randomGrammar(){
 
 const sampleTerminals = '+-()'
 const sampleNonTerminals = 'ABCDEFGHIJKLMNOPQRTUVWXYZ'
+
+
+// D -> R + D
+// D -> num
+// R -> ( B + R a)
+// R -> @ B + C @
+// R -> B C
+// R -> ''
+// B -> qqq
+// B -> ''
+// C -> *
+
+
+// D ::= R + D
+// D ::= num
+// R ::= ( B + R a)
+// R ::= @ B + C @
+// R ::= B C
+// R ::= ''
+// B ::= qqq
+// B ::= ''
+// C ::= *
