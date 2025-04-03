@@ -33,13 +33,24 @@ const emptyCell = ".";
 const nullableColumnKey = "Nullable";
 const leftRecursionErrorStr = "Left Recursion Detected, Cannot Continue! The Grammar is not LL(1) Parsable!";
 const unparsableGrammarErrorStr = "The Grammar is not LL(1) Parsable!";
-const defaultGrammar = [
+const defaultGrammar2 = [
     "D ::= R",
     "R ::= B C",
     "B ::= +",
     "B ::= e",
     "C ::= -",
     "C ::= e",
+].join("\n");
+const defaultGrammar = [
+    "D ::= R + D",
+    "D ::= num",
+    "R ::= ( B + R a)",
+    "R ::= @ B + C @",
+    "R ::= B C",
+    "R ::=  e",
+    "B ::= qqq",
+    "B ::=  e",
+    "C ::= *",
 ].join("\n");
 // Colors to use for tables
 var HTMLColors;
@@ -530,6 +541,8 @@ class FirstTable {
                 cell.style.color = "black";
                 newRow.appendChild(cell);
                 cell.style.minWidth = "50px";
+                cell.style.paddingLeft = "8px";
+                cell.style.paddingRight = "8px";
                 cell.style.border = "1px solid black";
                 // Check if this is the header row
                 if (r == 0) {
@@ -2531,8 +2544,9 @@ function prepForFinalTableBuild() {
     followTable.colorAllCells(HTMLColors.disableColor);
     // Enable any cells in the follow table that have a value set
     var removeRows = [];
+    var rowNeeded = false;
     for (const [rowKey, columnMap] of followTable.tableData) {
-        var rowNeeded = false;
+        rowNeeded = false;
         for (const columnKey of followTable.columns.values()) {
             const cellData = columnMap.get(columnKey);
             if (cellData == null) {
@@ -2675,22 +2689,4 @@ function randomGrammar() {
 }
 const sampleTerminals = '+-()';
 const sampleNonTerminals = 'ABCDEFGHIJKLMNOPQRTUVWXYZ';
-// D -> R + D
-// D -> num
-// R -> ( B + R a)
-// R -> @ B + C @
-// R -> B C
-// R -> ''
-// B -> qqq
-// B -> ''
-// C -> *
-// D ::= R + D
-// D ::= num
-// R ::= ( B + R a)
-// R ::= @ B + C @
-// R ::= B C
-// R ::= ''
-// B ::= qqq
-// B ::= ''
-// C ::= *
 //# sourceMappingURL=parser.js.map

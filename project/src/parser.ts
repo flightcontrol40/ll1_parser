@@ -34,7 +34,7 @@ const emptyCell = ".";
 const nullableColumnKey = "Nullable";
 const leftRecursionErrorStr = "Left Recursion Detected, Cannot Continue! The Grammar is not LL(1) Parsable!";
 const unparsableGrammarErrorStr = "The Grammar is not LL(1) Parsable!";
-const defaultGrammar = [
+const defaultGrammar2 = [
     "D ::= R",
     "R ::= B C",
     "B ::= +",
@@ -42,6 +42,19 @@ const defaultGrammar = [
     "C ::= -",
     "C ::= e",
 ].join("\n");
+const defaultGrammar = [
+    "D ::= R + D",
+    "D ::= num",
+    "R ::= ( B + R a)",
+    "R ::= @ B + C @",
+    "R ::= B C",
+    "R ::=  e",
+    "B ::= qqq",
+    "B ::=  e",
+    "C ::= *",
+].join("\n");
+
+
 
 // Colors to use for tables
 enum HTMLColors  {
@@ -2971,25 +2984,3 @@ function randomGrammar(){
 
 const sampleTerminals = '+-()'
 const sampleNonTerminals = 'ABCDEFGHIJKLMNOPQRTUVWXYZ'
-
-
-// D -> R + D
-// D -> num
-// R -> ( B + R a)
-// R -> @ B + C @
-// R -> B C
-// R -> ''
-// B -> qqq
-// B -> ''
-// C -> *
-
-
-// D ::= R + D
-// D ::= num
-// R ::= ( B + R a)
-// R ::= @ B + C @
-// R ::= B C
-// R ::= ''
-// B ::= qqq
-// B ::= ''
-// C ::= *

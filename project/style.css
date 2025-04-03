@@ -90,3 +90,13 @@ html, body {
 text-align: center;
 }
 p {text-align: left;}
+
+.footer {
+    position: fixed;
+    bottom: 20px;
+    float: right;
+    right: 20px;
+    opacity: 0.5;
+    text-align: right;
+    z-index: 1000;
+  }
