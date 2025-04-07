@@ -42,7 +42,8 @@ const defaultGrammar2 = [
     "C ::= -",
     "C ::= e",
 ].join("\n");
-const defaultGrammar = [
+
+const defaultGrammar3 = [
     "D ::= R + D",
     "D ::= num",
     "R ::= ( B + R a)",
@@ -54,7 +55,17 @@ const defaultGrammar = [
     "C ::= *",
 ].join("\n");
 
-
+const defaultGrammar = [
+    "<Prog> ::= { <Stmts> }",
+    "<Stmts> ::= <Stmt> <Stmts> ",
+    "<Stmts> ::= e",
+    "<Stmt> ::= id = <Expr> ;",
+    "<Stmt> ::= if ( <Expr> ) <Stmt>",
+    "<Expr> ::= id <Etail>",
+    "<Etail> ::= + <Expr>",
+    "<Etail> ::= - <Expr>",
+    "<Etail> ::= e",
+].join("\n");
 
 // Colors to use for tables
 enum HTMLColors  {
@@ -63,7 +74,8 @@ enum HTMLColors  {
     highlightColor = "yellow",
     softGreyColor  = "#e4e3e3",
     errorColor = "red",
-    textColor = "black"
+    textColor = "black",
+    epsilonColor = "#dbdbdb"
 }
 
 // Cell State attributes
@@ -136,12 +148,12 @@ function deleteMyTable(myTableId: string) {
         element.parentNode!.removeChild(element);
 }
 
-// Get the HTML Cell from a first or last table
-function getTableCell(tableId: string, rowLabel: string, columnLabel: string): HTMLTableCellElement|null {
-    return document.querySelector(
-        `#${tableId}>[data-row="${rowLabel}"]>[data-column="${columnLabel}"]`
-    ) as HTMLTableCellElement;
-}
+// // Get the HTML Cell from a first or last table
+// function getTableCell(tableId: string, rowLabel: string, columnLabel: string): HTMLTableCellElement|null {
+//     return document.querySelector(
+//         `#${tableId}>[data-row="${rowLabel}"]>[data-column="${columnLabel}"]`
+//     ) as HTMLTableCellElement;
+// }
 
 // Set the string in the instruction field
 function setInstructionValue(value: string, clear:boolean = true){
@@ -361,14 +373,15 @@ class ProductionTable {
                 // its values
                 var indirectlyEpsilon = true;
                 for (var i = 0 ; i < prod.rule.right.length; i ++){
-                    var indirectEpsilonCol = getTableCell(
-                        firstTableID,
-                        prod.rule.right[i],
-                        epsilon
-                    )
+                    var indirectEpsilonCol = firstTable.getCell(prod.rule.right[i], epsilon)
+                    // var indirectEpsilonCol = getTableCell(
+                    //     firstTableID,
+                    //     prod.rule.right[i],
+                    //     epsilon
+                    // )
                     if (indirectEpsilonCol != null){
                         // Check if the value is set
-                        if ( indirectEpsilonCol.textContent != "."){
+                        if ( indirectEpsilonCol.data != emptyCell){
                             // This letter can produce epsilon check the next
                             continue;
                         }
@@ -425,8 +438,12 @@ class ProductionTable {
                             `First(${prod.rule.left}) ::= 'First(${prod.rule.right[i]})'. So put a ${row} at the intersection of ${prod.rule.left} and First(${prod.rule.right[i]}) in the First Table.`
                         )
                         // Check if this is nullable
-                        var epsilonCell = getTableCell(firstTableID, prod.rule.right[i], epsilon);
-                        if (epsilonCell?.textContent != emptyCell){
+                        var epsilonCell = firstTable.getCell(prod.rule.right[i], epsilon)
+                        if (epsilonCell == null){
+                            break;
+                        }
+                        // var epsilonCell = getTableCell(firstTableID, prod.rule.right[i], epsilon);
+                        if (epsilonCell.data != emptyCell){
                             if (prod.rule.right.length-1 != i){
                                 instructions.push(
                                     `Note that ${prod.rule.right[i]} is nullable, So we must also look at the next symbol in the production.`
@@ -553,6 +570,126 @@ function grammarUnparsableError(errorStr: string){
     productionTable.render();
 }
 
+
+
+// // Render a custom div table's data
+// function _renderDivTableData(){
+
+// }
+// class TableObj {
+//     parentID: string;
+//     tableID: string;
+//     columns: string[];
+//     rows: string[];
+//     table: HTMLDivElement;
+//     tableData: Map<string,Map<string,CellData>>;
+
+//     constructor(parentID: string, tableID: string){
+//         this.parentID = parentID;
+//         this.tableID = tableID;
+//         this.columns = new Array<string>();
+//         this.rows = new Array<string>();
+//         this.table = document.createElement("TABLE") as HTMLTableElement;
+//         this.tableData = new Map<string,Map<string,CellData>>;
+//     }
+
+//     // Adds the table layout size based on current column and rows
+//     formatTableSize(){
+//         this.table.setAttribute('class', "grid-table")
+//         this.table.setAttribute("id", this.tableID);
+//         // Set header span based on amount of columns
+//         var gridTemplateColumns = new Array<string>();
+//         // Set the layout of the table
+//         for (var c = 0; c < this.columns.length+1; c++){
+//             if (c == this.columns.length-1){
+//                 // gap column
+//                 gridTemplateColumns.push("20px");
+//             }
+//             else {
+//                 // other columns
+//                 gridTemplateColumns.push("auto");
+//             }
+//         }
+//         this.table.style.setProperty("grid-template-columns", gridTemplateColumns.join(" "));
+//     }
+
+//     // Creates the Title element for the table
+//     addTableTitleElement(){
+//         // Add Header
+//         var header = document.createElement("div") as HTMLDivElement;
+//         header.setAttribute("class", "span-header");
+//         // Set header span
+//         header.style.setProperty("grid-column", `1 / span ${this.columns.length-1}`)
+//         // Add the header
+//         this.table.append(header);
+//         // Placeholders for gap and epsilon columns to complete the grid row
+//         this.addTableGap();
+//         this.addTableGap();
+//     }
+
+//     // Appends a gap to the table at the end of the current row
+//     addTableGap(){
+//         var gap = document.createElement('div') as HTMLDivElement;
+//         gap.setAttribute("class", "grid-cell gap");
+//         gap.setAttribute("style", "border: none;")
+//         this.table.append(gap);
+//     }
+
+//     // Creates the header row for the table.
+//     addTableHeaderRow(){
+//         // Add blank column to align
+//         var alignCell = document.createElement("div") as HTMLDivElement;
+//         alignCell.setAttribute("class", "grid-cell header");
+//         this.table.append(alignCell);
+//         // Build the header rows
+//         for (var i = 0; i < this.columns.length-1; i++) {
+//             // Set the Column Headers
+//             var cell = document.createElement('div') as HTMLDivElement;
+//             cell.setAttribute('class', "grid-cell header")
+//             cell.textContent = this.columns[i]
+//         }
+//         // Add the gap
+//         var gapCell = document.createElement("div") as HTMLDivElement;
+//         gapCell.setAttribute("class", "grid-cell gap");
+//         this.table.append(gapCell);
+//         // Add the epsilon column
+//         var epsilonHeader = document.createElement("div") as HTMLDivElement;
+//         epsilonHeader.setAttribute("class","grid-cell header");
+//         epsilonHeader.textContent = this.columns[this.columns.length - 1];
+//         this.table.append(epsilonHeader);
+//     }
+
+//     // // Adds the single row at passed index to the table
+//     // addSingleTableRow(rowIdx: number){
+//     //     // Make the first cell in the row a "header" class so that it
+//     //     // takes on the header formatting
+        
+//     //     for (var i =0; i < this.rows.length-1; i++){
+
+//     //         }
+//     // }
+
+//     // Adds the data rows to the table
+//     addTableDataRows() {
+//         // Start with the header row
+//         const headerRow = this.tableData.get("HeaderRow");
+//         if (headerRow == null){
+//             console.error("No Header Row Set for the Table!!")
+//             break;
+//         }
+//         for (const [rowKey, columns] of this.tableData) {
+            
+//             for (const [columnKey, columnData] of columns)
+//             // Skip the epsilon column as we need to add a gap then it later
+//             console.log(`Key: ${key}, Value: ${value}`);
+//           }
+
+//     }
+
+
+
+// }
+
 // Class for interacting with the first table
 class FirstTable {
     parentID: string;
@@ -625,6 +762,7 @@ class FirstTable {
         this.table.setAttribute("id", this.tableID);
         this.table.style.border = "2px solid black";
         this.table.style.backgroundColor = HTMLColors.defaultColor;
+        this.table.style.borderCollapse = "separate";
         // Add header
         var header = document.createElement("caption");
         header.textContent = this.tableHeaderStr
@@ -648,8 +786,6 @@ class FirstTable {
                 cell.style.color = "black";
                 newRow.appendChild(cell);
                 cell.style.minWidth = "50px";
-                cell.style.paddingLeft = "8px";
-                cell.style.paddingRight = "8px";
                 cell.style.border = "1px solid black";
                 // Check if this is the header row
                 if (r == 0){
@@ -674,7 +810,6 @@ class FirstTable {
                         cell.style.backgroundColor = HTMLColors.softGreyColor;
                     }
                     else {
-                        cell.parentNode
                         // Build first table cell locations
                         cell.setAttribute("data-column", this.columns[c-1]);
                         var cellData = this.tableData.get(this.rows[r-1])?.get(this.columns[c-1]);
@@ -688,6 +823,13 @@ class FirstTable {
                         }
                         cell.style.backgroundColor = cellData.color
                         cell.textContent = cellData.data;
+                        // Add additional coloring for the epsilon column
+                        if (this.columns[c-1] === epsilon){
+                            if (cell.style.backgroundColor == HTMLColors.defaultColor){
+                                // Epsilon should be a slightly darker color
+                                cell.style.backgroundColor = HTMLColors.epsilonColor;
+                            }
+                        }
                         // Add cell attributes
                         for (const [key, value] of cellData.attributes.entries()){
                             cell.setAttribute(key, value);
@@ -786,11 +928,11 @@ class FirstTable {
         if (errorState == true){
             return;
         }
-        var cell = getTableCell(this.tableID, rowLabel,columnLabel);
+        // var cell = getTableCell(this.tableID, rowLabel,columnLabel);
         var selectedCellData = this.getCell(rowLabel, columnLabel);
-        if (cell == null){
-            return;
-        }
+        // if (cell == null){
+        //     return;
+        // }
         switch (currentStep) {
             case Steps.ENTER_EPSILON:
                 // Check that this cell matches the selected production rule.
@@ -940,13 +1082,14 @@ class FirstTable {
                                 break;
                             }
                             else {
+                            var epsilonCell = firstTable.getCell(currentSymbol, epsilon)
                                 // Only continue if the symbol is nullable
-                                var epsilonCell = getTableCell(
-                                    firstTableID,
-                                    currentSymbol,
-                                    epsilon
-                                )
-                                if (epsilonCell?.textContent != emptyCell){
+                                // var epsilonCell = getTableCell(
+                                //     firstTableID,
+                                //     currentSymbol,
+                                //     epsilon
+                                // )
+                                if (epsilonCell?.data != emptyCell){
                                     continue;
                                 }
                                 else {
@@ -1326,6 +1469,14 @@ class FollowTable {
                         }
                         cell.style.backgroundColor = cellData.color
                         cell.textContent = cellData.data;
+                        // Add additional coloring for the epsilon column
+                        if (this.columns[c-1] === epsilon){
+                            if (cell.style.backgroundColor == HTMLColors.defaultColor){
+                                // Epsilon should be a slightly darker color
+                                cell.style.backgroundColor = HTMLColors.epsilonColor;
+                            }
+                        }
+
                         // Add cell attributes
                         for (const [key, value] of cellData.attributes.entries()){
                             cell.setAttribute(key, value);
@@ -1933,10 +2084,11 @@ function checkProgress(delayInstruction: boolean = true){
                 var prod = productionTable.productions[i];
                 // Check if the production should produce epsilon
                 if (prod.rule.right[0] == epsilon){
+                    var cell = firstTable.getCell(prod.rule.left, epsilon);
                     // Check that its has been placed in the first table
-                    var cell = getTableCell(firstTable.tableID,prod.rule.left, epsilon);
+                    // var cell = getTableCell(firstTable.tableID,prod.rule.left, epsilon);
                     if (cell != null){
-                        if (cell?.textContent != prod.idx.toString()){
+                        if (cell?.data != prod.idx.toString()){
                             // Not complete yet
                             done = false;
                             break;
@@ -1980,14 +2132,16 @@ function checkProgress(delayInstruction: boolean = true){
                 // Check if the production should produce epsilon indirectly
                 var indirectlyEpsilon = true;
                 for (var j = 0 ; j < prod.rule.right.length; j++){
-                    var indirectEpsilonCol = getTableCell(
-                        firstTableID,
-                        prod.rule.right[j],
-                        epsilon
-                    )
+                    var indirectEpsilonCol = firstTable.getCell(prod.rule.right[j], epsilon);
+                    
+                    // var indirectEpsilonCol = getTableCell(
+                    //     firstTableID,
+                    //     prod.rule.right[j],
+                    //     epsilon
+                    // )
                     if (indirectEpsilonCol != null){
                         // Check if the value is set
-                        if (indirectEpsilonCol.textContent != ".") {
+                        if (indirectEpsilonCol.data != emptyCell) {
                             // Current symbol can resolve to epsilon.
                             continue;
                         }
@@ -2000,12 +2154,13 @@ function checkProgress(delayInstruction: boolean = true){
                 if (indirectlyEpsilon == true){
                     // Check that this production indicates that it can also
                     // be epsilon
-                    var current_cell = getTableCell(
-                        firstTableID,
-                        prod.rule.left,
-                        epsilon
-                    )
-                    if (current_cell?.textContent == "."){
+                    var current_cell = firstTable.getCell(prod.rule.left, epsilon);
+                    // var current_cell = getTableCell(
+                    //     firstTableID,
+                    //     prod.rule.left,
+                    //     epsilon
+                    // )
+                    if (current_cell?.data == emptyCell){
                         // Not Done
                         done = false;
                         break;
@@ -2037,8 +2192,9 @@ function checkProgress(delayInstruction: boolean = true){
                         }
                         else {
                             // Non terminal found, Check if it is nullable
-                            var childCell = getTableCell(firstTableID, currentSymbol, epsilon);
-                            if (childCell?.innerText != "."){
+                            // var childCell = getTableCell(firstTableID, currentSymbol, epsilon);
+                            var childCell = firstTable.getCell(currentSymbol, epsilon);
+                            if (childCell?.data != emptyCell){
                                 // Nullable, Add to first set and continue through the production
                                 firstSet?.add(`First(${currentSymbol})`);
                             }
@@ -2071,12 +2227,13 @@ function checkProgress(delayInstruction: boolean = true){
                 for (var i = 0; i < prod.rule.right.length; i++ ){
                     var currentSymbol = prod.rule.right[i];
                     if (grammar.terminals.has(currentSymbol)){
-                        var cell = getTableCell(
-                            firstTableID,
-                            prod.rule.left,
-                            currentSymbol
-                        );
-                        if (cell?.textContent != emptyCell){
+                        var cell = firstTable.getCell(prod.rule.left, currentSymbol);
+                        // var cell = getTableCell(
+                        //     firstTableID,
+                        //     prod.rule.left,
+                        //     currentSymbol
+                        // );
+                        if (cell?.data != emptyCell){
                             // Production complete
                             break;
                         }
@@ -2087,23 +2244,26 @@ function checkProgress(delayInstruction: boolean = true){
                     }
                     else {
                         var correctColumn = `First(${currentSymbol})`;
-                        var cell = getTableCell(
-                            firstTableID,
-                            prod.rule.left,
-                            correctColumn
-                        );
-                        if (cell?.textContent == emptyCell) {
+                        var cell = firstTable.getCell(prod.rule.left, correctColumn);
+                        // var cell = getTableCell(
+                        //     firstTableID,
+                        //     prod.rule.left,
+                        //     correctColumn
+                        // );
+                        if (cell?.data == emptyCell) {
                             prodComplete=false;
                             break;
                         }
                         else {
                             // Only continue if the symbol is nullable
-                            var epsilonCell = getTableCell(
-                                firstTableID,
-                                currentSymbol,
-                                epsilon
-                            )
-                            if (epsilonCell?.textContent != emptyCell){
+                            var epsilonCell = firstTable.getCell(currentSymbol, epsilon);
+
+                            // var epsilonCell = getTableCell(
+                            //     firstTableID,
+                            //     currentSymbol,
+                            //     epsilon
+                            // )
+                            if (epsilonCell?.data != emptyCell){
                                 // Is nullable, Continue
                                 continue;
                             }
