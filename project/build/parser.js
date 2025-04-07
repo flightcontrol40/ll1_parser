@@ -705,12 +705,12 @@ class FirstTable {
                         cell.style.backgroundColor = cellData.color;
                         cell.textContent = cellData.data;
                         // Add additional coloring for the epsilon column
-                        // if (this.columns[c-1] === epsilon){
-                        //     if (cell.style.backgroundColor == HTMLColors.defaultColor){
-                        //         // Epsilon should be a slightly darker color
-                        //         cell.style.backgroundColor = HTMLColors.epsilonColor;
-                        //     }
-                        // }
+                        if (this.columns[c - 1] === epsilon) {
+                            if (cell.style.backgroundColor == HTMLColors.defaultColor) {
+                                // Epsilon should be a slightly darker color
+                                cell.style.backgroundColor = HTMLColors.epsilonColor;
+                            }
+                        }
                         // Add cell attributes
                         for (const [key, value] of cellData.attributes.entries()) {
                             cell.setAttribute(key, value);
