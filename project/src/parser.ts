@@ -43,7 +43,7 @@ const defaultGrammar2 = [
     "C ::= e",
 ].join("\n");
 
-const defaultGrammar3 = [
+const defaultGrammar = [
     "D ::= R + D",
     "D ::= num",
     "R ::= ( B + R a)",
@@ -55,7 +55,7 @@ const defaultGrammar3 = [
     "C ::= *",
 ].join("\n");
 
-const defaultGrammar = [
+const defaultGrammar3 = [
     "<Prog> ::= { <Stmts> }",
     "<Stmts> ::= <Stmt> <Stmts> ",
     "<Stmts> ::= e",
@@ -2609,13 +2609,18 @@ function createGrammar(input: string): Grammar| null {
     var inputLines = input.trim().split(/(?:\r?\n)+/)
     // Add the starting rule
     const [left, right] = inputLines[0].split("::=").map((s) => s.trim());
-    const productionStrings = [`S ::= ${left} $`].concat(inputLines);
     // Process each line of the grammar input.
-    for (const line of productionStrings) {
+    for (const line of inputLines) {
         const [left, right] = line.split("::=").map((s) => s.trim());
         // The left-hand side is always a non-terminal.
         nonTerminals.add(left);
     }
+    if (nonTerminals.has("S")){
+        console.error("Invalid Production with non-term 'S'!");
+        return null;
+    }
+    const productionStrings = [`S ::= ${left} $`].concat(inputLines);
+
     for (const line of productionStrings) {
         // Split the production rule by " ::=" and remove extra whitespace.
         const [left, right] = line.split("::=").map((s) => s.trim());
