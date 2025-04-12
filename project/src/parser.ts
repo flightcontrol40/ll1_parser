@@ -16,7 +16,8 @@
 // Global Constants
 ////////////////////////////////////////////////////////////////////////////////
 
-const epsilon = "e";
+var epsilon = "e";
+var assignmentSymbol = "::="
 const grammarProductionColumn = "GrammarProductionColumn";
 const productionTableID = "grammarTable";
 const grammarInputBox = "UserGrammar";
@@ -30,11 +31,17 @@ const lastTableID = "lastTable";
 const messageTableID = "Instructions"
 const messageParent="MessageTable"
 const headingTable="Table_1"
+const assignmentSymId = "assignmentSym";
+const epsilonSymId = "epsilonSym";
 const emptyCell = ".";
+const noButtonId = "noButton";
+const yesButtonId = "yesButton";
 const nullableColumnKey = "Nullable";
 const leftRecursionErrorStr = "Left Recursion Detected, Cannot Continue! The Grammar is not LL(1) Parsable!";
 const unparsableGrammarErrorStr = "The Grammar is not LL(1) Parsable!";
-const defaultGrammar2 = [
+const noButton = document.getElementById(noButtonId) as HTMLButtonElement;
+const yesButton = document.getElementById(yesButtonId) as HTMLButtonElement;
+const defaultGrammar = [
     "D ::= R",
     "R ::= B C",
     "B ::= +",
@@ -43,7 +50,7 @@ const defaultGrammar2 = [
     "C ::= e",
 ].join("\n");
 
-const defaultGrammar = [
+const defaultGrammar4 = [
     "D ::= R + D",
     "D ::= num",
     "R ::= ( B + R a)",
@@ -67,11 +74,25 @@ const defaultGrammar3 = [
     "<Etail> ::= e",
 ].join("\n");
 
+const defaultGrammar2 = [
+    "A ::= B",
+    "B ::= C",
+    "C ::= A",
+    "C ::= -",
+].join("\n");
+
+const defaultGrammar5 = [
+    "A ::= & C | !",
+    "B ::= * A",
+    "C ::= % B | e",
+].join("\n");
+
 // Colors to use for tables
 enum HTMLColors  {
     defaultColor   = "white",
     disableColor   = "gray",
     highlightColor = "yellow",
+    darkHighlightColor = "#ffcc00",
     softGreyColor  = "#e4e3e3",
     errorColor = "red",
     textColor = "black",
@@ -85,7 +106,8 @@ enum CellAttr {
     parentCellCol = "data-ParentCellCol",
     childCellCol = "data-ChildCellCol",
     prodRuleData = "data-ProductionRuleData",
-    styleOverride = 'data-StyleOverride'
+    styleOverride = 'data-StyleOverride',
+    copyCellKey = 'data-CopyCellKey'
 }
 
 // Steps enum
@@ -96,12 +118,13 @@ enum Steps {
     ENTER_EPSILON_FROM_EPSILON      = 2, // Select and find all indirect productions of epsilon
     FIND_FIRSTS                     = 3, // Find the First value of each production
     FIND_FIRSTS_COMPUTED            = 4, // Backfill the first values as needed
-    FIND_FOLLOWS                    = 5,
-    FIND_FOLLOWS_COMPUTED_FIRSTS    = 6,
-    FIND_FOLLOWS_COMPUTED_FOLLOWS   = 7,
-    PLACE_FOLLOW_EPSILON_NUMBERS    = 8,
-    CREATE_FINAL_TABLE              = 9,
-    DONE                            = 10
+    FOLLOW_NEEDED                   = 5,
+    FIND_FOLLOWS                    = 6,
+    FIND_FOLLOWS_COMPUTED_FIRSTS    = 7,
+    FIND_FOLLOWS_COMPUTED_FOLLOWS   = 8,
+    PLACE_FOLLOW_EPSILON_NUMBERS    = 9,
+    CREATE_FINAL_TABLE              = 10,
+    DONE                            = 11
 };
 
 enum FollowRuleType {
@@ -124,7 +147,7 @@ var followTable: FollowTable;
 var instructionString: string = '';
 var errorString: string = '';
 var errorState: boolean = false
-var selectedProductionFollowCells: Map<FollowRuleType, Set<FollowCellSelection>> = new Map([
+var selectedProductionFollowCells: Map<FollowRuleType, Set<CellSelection>> = new Map([
     [FollowRuleType.TERMINAL_FOLLOWS, new Set()],
     [FollowRuleType.NON_TERMINAL_FOLLOWS, new Set()],
     [FollowRuleType.END_OF_PRODUCTION, new Set()],
@@ -201,9 +224,7 @@ type Grammar = {
     terminals: Set<string>;                       // Set of terminal symbols.
     nonTerminals: Set<string>;                    // Set of non-terminal symbols.
     rules: ProductionRule[];                      // List of production rules.
-    firstSets: Map<string, Set<string>>;          // Map from each symbol to its FIRST set.
     followSets: Map<string, Set<string>>;         // Map from each non-terminal to its FOLLOW set.
-    solvedFirstSets: Set<string>;                 // Marks what first sets have been solved
 };
 
 // The data for a single row in the production table
@@ -250,6 +271,7 @@ class ProductionTable {
         // Create a new one based on the current state
         this.table = document.createElement("TABLE") as HTMLTableElement;
         this.table.setAttribute("id", this.tableID);
+        this.table.style.float = "right"
         this.table.style.border = "2px solid black";
         this.table.style.backgroundColor = HTMLColors.defaultColor;
         // Add Header
@@ -269,7 +291,7 @@ class ProductionTable {
             }
             //     this.ButtonCallback(prod.idx);
             // }};
-            newRow.setAttribute("id", prod.rule.left + " ::= " + prod.rule.right.join(""));
+            newRow.setAttribute("id", prod.rule.left + ` ${assignmentSymbol} ` + prod.rule.right.join(""));
             newRow.style.border = "1px solid black";
             // Create index cell
             var idxCell = document.createElement("TD") as HTMLTableCellElement;
@@ -286,7 +308,7 @@ class ProductionTable {
             cell.style.border = "1px solid black";
             cell.style.color = "black";
             // Add production rule
-            cell.textContent = prod.rule.left + " ::= " + prod.rule.right.join("");
+            cell.textContent = prod.rule.left + ` ${assignmentSymbol} ` + prod.rule.right.join("");
             // Set the row color
             newRow.style.backgroundColor = prod.color;
             this.table.appendChild(newRow);
@@ -368,11 +390,6 @@ class ProductionTable {
                 var indirectlyEpsilon = true;
                 for (var i = 0 ; i < prod.rule.right.length; i ++){
                     var indirectEpsilonCol = firstTable.getCell(prod.rule.right[i], epsilon)
-                    // var indirectEpsilonCol = getTableCell(
-                    //     firstTableID,
-                    //     prod.rule.right[i],
-                    //     epsilon
-                    // )
                     if (indirectEpsilonCol != null){
                         // Check if the value is set
                         if ( indirectEpsilonCol.data != emptyCell){
@@ -423,13 +440,13 @@ class ProductionTable {
                 for (var i = 0; i < prod.rule.right.length; i++){
                     if (grammar.terminals.has(prod.rule.right[i])){
                         instructions.push(
-                            `First(${prod.rule.left}) ::= '${prod.rule.right[i]}'. So put a ${row} at the intersection of ${prod.rule.left} and ${prod.rule.right[i]} in the First Table.`
+                            `First(${prod.rule.left}) ${assignmentSymbol} '${prod.rule.right[i]}'. So put a ${row} at the intersection of ${prod.rule.left} and ${prod.rule.right[i]} in the First Table.`
                         )
                         break;
                     }
                     else {
                         instructions.push(
-                            `First(${prod.rule.left}) ::= 'First(${prod.rule.right[i]})'. So put a ${row} at the intersection of ${prod.rule.left} and First(${prod.rule.right[i]}) in the First Table.`
+                            `First(${prod.rule.left}) ${assignmentSymbol} 'First(${prod.rule.right[i]})'. So put a ${row} at the intersection of ${prod.rule.left} and First(${prod.rule.right[i]}) in the First Table.`
                         )
                         // Check if this is nullable
                         var epsilonCell = firstTable.getCell(prod.rule.right[i], epsilon)
@@ -564,6 +581,10 @@ function grammarUnparsableError(errorStr: string){
     productionTable.render();
 }
 
+type CellSelection = {
+    rowLabel: string,
+    columnLabel: string
+}
 
 // Class for interacting with the first table
 class FirstTable {
@@ -574,6 +595,8 @@ class FirstTable {
     table: HTMLTableElement;
     tableData: Map<string,Map<string,CellData>>;
     tableHeaderStr: string = "First Table";
+    parentCellChildren: Array<string> = new Array();
+    parentCellSelection: CellSelection | null = null;
 
     constructor(grammar: Grammar){
         this.parentID = firstTableDiv;
@@ -871,6 +894,13 @@ class FirstTable {
                                 attributes: new Map()
                             }
                         }
+                        if (cellData.data != emptyCell){
+                            // Check for left recursion
+                            if (productionTable.selectedProduction.toString() != cellData.data){
+                                grammarUnparsableError(leftRecursionErrorStr);
+                                break;
+                            }
+                        }
                         cellData.data = productionTable.selectedProduction.toString()
                         this.tableData.get(rowLabel)?.set(columnLabel, cellData);
                         this.render();
@@ -993,112 +1023,94 @@ class FirstTable {
                 // Check if this a a value that needs to be simplified or one
                 // that is a production of the backfill simplification
                 if (selectedCellData.attributes.has(CellAttr.needsSimplified)){
-                    // Check what values this First Column can be simplified into
-                    const columnSymbol = extractRowKey(columnLabel);
-                    if (columnSymbol == null){
-                        console.error("Column Symbol could not be found!");
-                        return;
-                    }
-                    const childFirstSet = grammar.firstSets.get(columnSymbol);
-                    if (childFirstSet == null){
+                    // This is a first cell that needs its values to be copied from
+                    // the child cell row
+
+                    // Deactivate all the other first table cells until this one is complete
+                    this.colorAllCells(HTMLColors.disableColor);
+                    this.disableAllCells();
+                    selectedCellData.color = HTMLColors.errorColor;
+                    selectedCellData.enabled = true;
+                    // Get all the child cells
+                    const copyRowKey = extractRowKey(columnLabel);
+                    if (copyRowKey == null){
+                        // Something has gone horribly wrong
+                        console.error(`First Table missing Row: "${copyRowKey}"`);
                         break;
                     }
-                    // Highlight and enable each cell that can be simplified
-                    // into that isn't already simplified
-                    var childCellCols = new Array<string>;
-                    for (const childSymbol of childFirstSet.values() ){
-                        // Check if this value is already filled
-                        var childCellData = this.getCell(
-                            rowLabel,
-                            childSymbol,
-                        )
-                        if (childCellData == null){
+
+                    const copyRow = this.tableData.get(copyRowKey) as Map<string, CellData>;
+                    for (const [childColumnKey, copyCell] of copyRow) {
+                        if (copyCell.data == emptyCell){
                             continue;
                         }
-                        // Check for a double fill of epsilon
-                        if (childSymbol == epsilon){
-                            if (childCellData.data != emptyCell){
-                                continue;
-                            }
+                        // Don't copy epsilon
+                        if (childColumnKey == epsilon){
+                            continue
                         }
-                            childCellData.color = HTMLColors.highlightColor
-                            childCellData.enabled = true;
-                            childCellCols.push(childSymbol);
-                            childCellData.attributes.set(CellAttr.needsFilled, selectedCellData.data);
-                            var currentParentCols = childCellData.attributes.get(CellAttr.parentCellCol);
-                            if (currentParentCols == null){
-                                currentParentCols = "[]";
-                            }
-                            var currentParentColsArray = JSON.parse(currentParentCols) as Array<string>;
-                            currentParentColsArray.push(columnLabel);
-                            childCellData.attributes.set(CellAttr.parentCellCol, JSON.stringify(currentParentColsArray));
-                            this.setCell(rowLabel, childSymbol, childCellData);
+                        // Don't copy first(itself)
+                        if (childColumnKey == columnLabel){
+                            continue;
+                        }
+                        // This a column that needs to be copied.
+                        copyCell.color = HTMLColors.darkHighlightColor;
+                        this.parentCellChildren.push(childColumnKey)
+                        // Enable and color the matching the cell in this row
+                        const childCell = this.getCell(rowLabel, childColumnKey) as CellData;
+                        childCell.color = HTMLColors.highlightColor;
+                        childCell.enabled = true;
+                        childCell.attributes.set(CellAttr.copyCellKey, copyRowKey);
                     }
-                    // Mark the list of child cells that need to be filled for this cell
-                    // to be complete
-                    selectedCellData.attributes.set(CellAttr.childCellCol, JSON.stringify(childCellCols));
-                    this.setCell(rowLabel,columnLabel, selectedCellData);
-                    // Fill out the instructions
-                    setInstructionValue(
-                        [
-                        `For ${columnLabel}: Fill in any values in ${rowLabel} row where they are also filled in `,
-                        `the ${columnSymbol} row. We place a ${selectedCellData.data} `,
-                        `in the cell to show that production ${selectedCellData.data} can produce that value as its first value.`
-                        ].join("")
-                    )
+                    this.parentCellSelection = {rowLabel, columnLabel};
+                    setInstructionValue(`Place a ${selectedCellData.data} in all the columns in the ${rowLabel} where there is a value in the ${copyRowKey} row.`)
                 }
-                else if (selectedCellData.attributes.has(CellAttr.needsFilled)) {
-                    // Selected cell needs filled, Fill the cell
-                    const fillData = selectedCellData.attributes.get(CellAttr.needsFilled);
-                    if (fillData == null){
+                // Child Cell that needs to be filled
+                else {
+                    // Get parent cell
+                    if (this.parentCellSelection== null){
+                        // Something has gone horribly wrong
+                        console.error(`No parent row set for this cell!`);
                         break;
                     }
-                    // Check for left Recursion
-                    if (selectedCellData.data != emptyCell && selectedCellData.data != fillData){
-                        if (selectedCellData.data != fillData){
+                    const parentCell = this.getCell(
+                        this.parentCellSelection?.rowLabel,
+                        this.parentCellSelection?.columnLabel
+                    ) as CellData;
+                    // Check for left recursion
+                    if (selectedCellData.data != emptyCell){
+                        if (parentCell.data != selectedCellData.data){
+                            // Left Recursion
                             grammarUnparsableError(leftRecursionErrorStr)
-                            return;
-                        }
-                    }
-                    selectedCellData.data = fillData;
-                    selectedCellData.color = HTMLColors.disableColor;
-                    selectedCellData.attributes.delete(CellAttr.needsFilled);
-                    this.setCell(rowLabel, columnLabel, selectedCellData);
-                    // Check if the parent cell is done
-                    const parentCellCols = JSON.parse(selectedCellData.attributes.get(CellAttr.parentCellCol) as string) as Array<string>;
-                    for (var parentCellCol of parentCellCols.values()){
-                        var parentCell = this.getCell(rowLabel, parentCellCol);
-                        if (parentCell == null){
                             break;
                         }
-                        const childJson = parentCell.attributes.get(CellAttr.childCellCol);
-                        if (childJson == null){
-                            break
-                        }
-                        var childCells = JSON.parse(childJson) as Array<string>;
-                        childCells = childCells.filter(childCol => childCol !== columnLabel);
-                        if (childCells.length == 0 ){
-                            // Cell complete, Remove child attribute, disable parent
-                            parentCell.attributes.delete(CellAttr.childCellCol);
-                            parentCell.attributes.delete(CellAttr.needsSimplified);
-                            parentCell.color = HTMLColors.disableColor;
-                            parentCell.enabled = false;
-                            parentCell.data = emptyCell;
-                            // Update the instruction box
-                            setInstructionValue(
-                                "Good Job, now select another cell highlighted in red."
-                            )
-                            
-                        }
-                        else {
-                            // Remove this cell from the list of children
-                            parentCell.attributes.set(CellAttr.childCellCol, JSON.stringify(childCells));
-                        }
-                        this.setCell(rowLabel, parentCellCol, parentCell);
                     }
-                    this.render()
+                    // Copy the parent cell data
+                    selectedCellData.data = parentCell.data;
+                    // Disable the child, Un-color it and the corresponding child cell
+                    selectedCellData.color = HTMLColors.disableColor;
+                    selectedCellData.enabled = false;
+                    const copyCellRowKey = selectedCellData.attributes.get(CellAttr.copyCellKey) as string;
+                    firstTable.setCellColor(copyCellRowKey, columnLabel, HTMLColors.disableColor);
+                    // Remove this cell from the remaining cells in the parent cell
+                    const index = this.parentCellChildren.indexOf(columnLabel);
+                    if (index > -1) { 
+                        this.parentCellChildren.splice(index, 1);
+                    }
+                    // Check if the parent cell is done
+                    if (this.parentCellChildren.length == 0){
+                        // Mark the parent cell as complete
+                        parentCell.data = emptyCell;
+                        parentCell.color = HTMLColors.disableColor;
+                        parentCell.attributes.delete(CellAttr.needsSimplified);
+                        checkProgress()
+
+                    }
+                    // save all the changes
+                    firstTable.setCell(rowLabel, this.parentCellSelection.columnLabel, parentCell);
+                    firstTable.setCell(rowLabel, columnLabel, selectedCellData);
                 }
-                checkProgress()
+
+                this.render()
                 break;
             
             case Steps.FIND_FOLLOWS_COMPUTED_FIRSTS:
@@ -1178,10 +1190,6 @@ class FirstTable {
     }
 }
 
-type FollowCellSelection = {
-    rowLabel: string,
-    columnLabel: string
-}
 
 class FollowTable {
 
@@ -1196,7 +1204,7 @@ class FollowTable {
     selectedRule: FollowRuleType | null;
     rulesTable: HTMLTableElement;
     rulesData: Array<boolean>;
-    selectedCell: FollowCellSelection|null = null;
+    selectedCell: CellSelection|null = null;
     solvingFollowSet: Set<string> = new Set();
 
     constructor(grammar: Grammar){
@@ -1926,10 +1934,11 @@ class FollowTable {
 }
 
 // Check the progress of the current step, advancing if necessary
-function checkProgress(delayInstruction: boolean = true){
+function checkProgress(delayInstruction: boolean = true, userChoice: number = -1){
     if (errorState == true){
         return;
     }
+    console.log(`Before progress Step: ${currentStep}`)
     switch (currentStep) {
         case Steps.ENTER_EPSILON:
             // Check that each production that produces epsilon has its first table
@@ -1985,18 +1994,17 @@ function checkProgress(delayInstruction: boolean = true){
 
                 // Check if the production should produce epsilon indirectly
                 var indirectlyEpsilon = true;
-                for (var j = 0 ; j < prod.rule.right.length; j++){
+                for (var j = prod.rule.right.length -1 ; j > -1; j--){
                     var indirectEpsilonCol = firstTable.getCell(prod.rule.right[j], epsilon);
                     if (indirectEpsilonCol != null){
                         // Check if the value is set
                         if (indirectEpsilonCol.data != emptyCell) {
-                            // Current symbol can resolve to epsilon.
                             continue;
                         }
                     }
-                    // Any other case, its not indirectly epsilon
                     indirectlyEpsilon = false;
                     break;
+
                 }
                 // Check if this was indirectly epsilon
                 if (indirectlyEpsilon == true){
@@ -2008,6 +2016,14 @@ function checkProgress(delayInstruction: boolean = true){
                         // Not Done
                         done = false;
                         break;
+                    }
+                    else {
+                        // Left recursion check
+                        if (current_cell?.data != prod.idx.toString()){
+                            // Left recursion will happen
+                            done = false
+                            break;
+                        }
                     }
                 }
             }
@@ -2021,38 +2037,7 @@ function checkProgress(delayInstruction: boolean = true){
                 setInstructionValue(
                     "Correct. Now choose a production rule and begin finding the First Values."
                 );
-                // Precalculate the first values of the production rules
-                for (var i = 0; i< productionTable.productions.length; i++){
-                    const prod = productionTable.productions[i];
-                    // Walk through the right side
-                    var firstSet = new Set(grammar.firstSets.get(prod.rule.left));
-                    for (var j = 0; j< prod.rule.right.length; j++){
-                        var currentSymbol = prod.rule.right[j];
-                        // Check if its a non-terminal
-                        if (grammar.terminals.has(currentSymbol) || currentSymbol == epsilon){
-                            // Terminal, add it to the first set and move on
-                            firstSet?.add(currentSymbol);
-                            break;
-                        }
-                        else {
-                            // Non terminal found, Check if it is nullable
-                            // var childCell = getTableCell(firstTableID, currentSymbol, epsilon);
-                            var childCell = firstTable.getCell(currentSymbol, epsilon);
-                            if (childCell?.data != emptyCell){
-                                // Nullable, Add to first set and continue through the production
-                                firstSet?.add(`First(${currentSymbol})`);
-                            }
-                            else {
-                                // Not Nullable, Add to first set and and stop
-                                firstSet?.add(`First(${currentSymbol})`);
-                                break;
-                            }
-                        }
-                    }
-                    grammar.firstSets.set(prod.rule.left, firstSet);
-                    checkProgress();
-
-                }
+                checkProgress()
             } else {
                 if (productionTable.selectedProduction != null) {
                     productionTable.setProductionRowEnable(productionTable.selectedProduction, true);
@@ -2072,11 +2057,6 @@ function checkProgress(delayInstruction: boolean = true){
                     var currentSymbol = prod.rule.right[i];
                     if (grammar.terminals.has(currentSymbol)){
                         var cell = firstTable.getCell(prod.rule.left, currentSymbol);
-                        // var cell = getTableCell(
-                        //     firstTableID,
-                        //     prod.rule.left,
-                        //     currentSymbol
-                        // );
                         if (cell?.data != emptyCell){
                             // Production complete
                             break;
@@ -2124,13 +2104,6 @@ function checkProgress(delayInstruction: boolean = true){
             if (allProdsComplete){
                 console.log("Step: Find Firsts complete.")
                 setInstructionValue("Good Job, Now Lets backfill the First() values in the table.");
-                // Prepare the first table for the next step
-                // First do a pass of the grammar first sets to see what can be
-                // solved in a single pass
-                processFirstSets();
-                // Disable all the cells in the first table
-                firstTable.colorAllCells(HTMLColors.disableColor);
-                firstTable.disableAllCells();
                 // Now update the step and run another pass of check progress
                 currentStep = Steps.FIND_FIRSTS_COMPUTED
                 checkProgress()
@@ -2138,103 +2111,79 @@ function checkProgress(delayInstruction: boolean = true){
             break;
 
         case Steps.FIND_FIRSTS_COMPUTED:
-            // Start by finding what First() values still need to be solved in the
-            // first table, Do this by checking all the row, col combinations
-            // of the table
-            var needSolvePass = true;
-            for (const rowSymbol of grammar.nonTerminals.values()){
-                // Skip any rows that cannot currently be solved
-                if (!grammar.solvedFirstSets.has(rowSymbol)){
-                    continue;
-                }
-                for (const colSymbol of grammar.nonTerminals.values()) {
+            // Walk through all the first columns
+            firstTable.disableAllCells();
+            firstTable.colorAllCells(HTMLColors.disableColor);
+            var stepDone = true;
+            for (const columnKey of grammar.nonTerminals){
+                for (const rowKey of grammar.nonTerminals){
                     const cell = firstTable.getCell(
-                        rowSymbol,
-                        `First(${colSymbol})`
+                        rowKey, `First(${columnKey})`
                     )
                     if (cell == null){
+                        continue
+                    }
+                    // Check if the cell is set
+                    if (cell.data == emptyCell){
                         continue;
                     }
-                    // If this cell has a value set then it still needs to be
-                    // solved.
-                    if (cell.data != emptyCell){
-                        // Now check if this cell can be solved this cycle by
-                        // referencing the grammars firstSets
-                        if (grammar.solvedFirstSets.has(rowSymbol)){
-                            // Check if this has already been solved by another
-                            // First() cell being solved (Due to implicit epsilon)
-                            var notCompleted = false;
-                            var currentFirstSet = grammar.firstSets.get(rowSymbol) as Set<string>;
-                            for (var childSymbol of currentFirstSet.values()){
-                                var symbolCell = firstTable.getCell(rowSymbol, childSymbol) as CellData;
-                                if (symbolCell.data == emptyCell){
-                                    notCompleted = true;
-                                    break;
-                                }
-                                else if(symbolCell.data != cell.data){
-                                    console.log("Left Recursion Detected in check")
-                                    notCompleted = true;
-                                    break;
-                                }
-                                else if (symbolCell.color == HTMLColors.highlightColor){
-                                    notCompleted = true;
-                                    break;
-                                }
-                            }
-                            if (notCompleted){
-                                // It can be solved this cycle, Highlight red, enable
-                                // the cell, Mark that we don't need another solve pass
-                                cell.color = HTMLColors.errorColor;
-                                cell.enabled = true;
-                                // Mark this cell as one that needs to be simplified
-                                cell.attributes.set(CellAttr.needsSimplified, "true");
-                                firstTable.setCell(
-                                    rowSymbol,
-                                    `First(${colSymbol})`,
-                                    cell
-                                );
-                                needSolvePass = false;
-                            }
-                            else{
-                                // Cell was already completed by another cell filling
-                                // in all its first values
-                                // It can be solved this cycle, Highlight red, enable
-                                // the cell, Mark that we don't need another solve pass
-                                cell.color = HTMLColors.disableColor;
-                                cell.enabled = false;
-                                cell.data = emptyCell;
-                                // Mark this cell as one that needs to be simplified
-                                cell.attributes.delete(CellAttr.needsSimplified);
-                                firstTable.setCell(
-                                    rowSymbol,
-                                    `First(${colSymbol})`,
-                                    cell
-                                );
-                                continue;
-                            }
-                        }
-                    }
-
+                    // Cell is set, not done yet
+                    stepDone = false;
+                    // Set the cell color and enable
+                    cell.color = HTMLColors.errorColor;
+                    cell.enabled = true;
+                    cell.attributes.set(
+                        CellAttr.needsSimplified,
+                        "true"
+                    );
                 }
             }
-            // render the table
-            firstTable.render()
-            // Check if we need a new solve pass
-            if (needSolvePass){
-                // Check if all the first values are solved
-                if (grammar.solvedFirstSets.size == grammar.firstSets.size){
-                    // All first values have been solved, so we are done with
-                    // this step
+            if (stepDone){
+                // Move on to next step
+                currentStep = Steps.FOLLOW_NEEDED;
+                // prepForFollowSolve();
+                setInstructionValue("Do we need to do the follow table? ")
+
+                checkProgress();
+            }
+            break;
+
+        case Steps.FOLLOW_NEEDED:
+            // hidden
+            noButton.style.visibility = "visible";
+            yesButton.style.visibility = "visible";
+            // Check if we need a follow table
+            var needed = false
+            for (const symbol of grammar.nonTerminals){
+                const epsilonCol = firstTable.getCell(symbol, epsilon);
+                if (epsilonCol == null){
+                    continue
+                }
+                if (epsilonCol.data != emptyCell){
+                    needed = true;
+                    break
+                }
+            }
+            if (userChoice != -1){
+                if (userChoice == 1 && needed){
                     currentStep = Steps.FIND_FOLLOWS;
+                    noButton.style.visibility = "hidden";
+                    yesButton.style.visibility = "hidden";
                     prepForFollowSolve();
                     checkProgress();
                 }
-                else {
-                    processFirstSets();
+                else if (userChoice == 0 && needed) {
+                    setErrorValue("We need a follow table as there are productions that can be epsilon!")
                 }
-                firstTable.render();
-                // Check progress again
-                checkProgress();
+                else if (userChoice == 1 && !needed) {
+                    setErrorValue("We don't need a follow table as there are not productions that can be epsilon!")
+                }
+                else {
+                    currentStep = Steps.DONE;
+                    noButton.style.visibility = "hidden";
+                    yesButton.style.visibility = "hidden";
+                    checkProgress();
+                }
             }
             break;
 
@@ -2567,28 +2516,43 @@ function checkProgress(delayInstruction: boolean = true){
                 if (index > -1) {
                     firstTable.columns.splice(index, 1);
                 }
-                firstTable.colorAllCells(HTMLColors.defaultColor);
-                setInstructionValue("The Transition Table is now complete.")
+                checkProgress()
+            }
+            break;
 
-                // Fill the table with the actual production rules
-                for (const [rowKey, columnMap] of firstTable.tableData) {
-                    for (const columnKey of firstTable.columns.values()) {
-                        const cellData = columnMap.get(columnKey);
-                        if (cellData == null){
-                            continue
-                        }
-                        if (cellData.data != emptyCell){
-                            const prod = productionTable.productions[parseInt(cellData.data)]
-                            cellData.data = `${prod.rule.left} ::= ${prod.rule.right.join("")}`
-                        }
+        case Steps.DONE:
+
+            firstTable.colorAllCells(HTMLColors.defaultColor);
+            setInstructionValue("The Transition Table is now complete.")
+
+            var remainingFirstColumns = new Array<string>();
+            // Fill the table with the actual production rules
+            for (const [rowKey, columnMap] of firstTable.tableData) {
+                for (const columnKey of firstTable.columns.values()) {
+                    if (columnKey.startsWith("First")){
+                        remainingFirstColumns.push(columnKey)
+                    }
+                    const cellData = columnMap.get(columnKey);
+                    if (cellData == null){
+                        continue
+                    }
+                    if (cellData.data != emptyCell){
+                        const prod = productionTable.productions[parseInt(cellData.data)]
+                        cellData.data = `${prod.rule.left} ${assignmentSymbol} ${prod.rule.right.join("")}`
                     }
                 }
             }
-            break;
+            for (const firstCol of remainingFirstColumns){
+                const i = firstTable.columns.indexOf(firstCol)
+                if (i > -1){
+                    firstTable.columns.splice(i, 1);
+                }
+            }
 
         default:
             break;
         }
+    console.log(`After progress Step: ${currentStep}`)
     productionTable.render()
     firstTable.render()
     followTable.render()
@@ -2603,27 +2567,46 @@ function createGrammar(input: string): Grammar| null {
     // Initialize sets for terminals and non-terminals.
     const terminals = new Set<string>();
     const nonTerminals = new Set<string>();
-    var firstSets = new Map();
+    const inputNonTerms = new Set<string>();
     var followSets= new Map();
+    // Collect epsilon and assignment symbol
+    const assignmentElem = document.getElementById(assignmentSymId) as HTMLFormElement;
+    if (assignmentElem.value == null){
+        return null;
+    }
+    assignmentSymbol = assignmentElem.value.trim()
+
+    const epsilonElem = document.getElementById(epsilonSymId) as HTMLFormElement;
+    if (epsilonElem.value == null){
+        return null;
+    }
+    epsilon = epsilonElem.value?.trim()
+    console.log("assignment: ", assignmentSymbol)
+    console.log("epsilon: ", epsilon)
     // Split input string into lines
     var inputLines = input.trim().split(/(?:\r?\n)+/)
     // Add the starting rule
-    const [left, right] = inputLines[0].split("::=").map((s) => s.trim());
+    const [start, _] = inputLines[0].split(assignmentSymbol).map((s) => s.trim());
+    nonTerminals.add("S");
     // Process each line of the grammar input.
     for (const line of inputLines) {
-        const [left, right] = line.split("::=").map((s) => s.trim());
+        const sides = line.split(assignmentSymbol).map((s) => s.trim());
+        if (sides.length != 2){
+            return null
+        }
         // The left-hand side is always a non-terminal.
-        nonTerminals.add(left);
+        inputNonTerms.add(sides[0]);
+        nonTerminals.add(sides[0]);
     }
-    if (nonTerminals.has("S")){
+    if (inputNonTerms.has("S")){
         console.error("Invalid Production with non-term 'S'!");
         return null;
     }
-    const productionStrings = [`S ::= ${left} $`].concat(inputLines);
+    const productionStrings = [`S ${assignmentSymbol} ${start} $`].concat(inputLines);
 
     for (const line of productionStrings) {
-        // Split the production rule by " ::=" and remove extra whitespace.
-        const [left, right] = line.split("::=").map((s) => s.trim());
+        // Split the production rule by assignment symbol and remove extra whitespace.
+        const [left, right] = line.split(assignmentSymbol).map((s) => s.trim());
         // Split the right-hand side by the OR symbol ('|') to get alternative productions.
         // Each alternative represents a separate production rule.
         const alternatives = right.split("|").map(alt => alt.trim());
@@ -2655,7 +2638,6 @@ function createGrammar(input: string): Grammar| null {
     }
     // Populate the first and follow sets
     nonTerminals.forEach((term) => {
-        firstSets.set(term, new Set());
         followSets.set(term, new Set());
     })
     // Check for empty productions
@@ -2663,15 +2645,12 @@ function createGrammar(input: string): Grammar| null {
         // No productions entered
         return null;
     }
-    var solvedFirstSets = new Set<string>;
     // Return the structured grammar object with empty FIRST and FOLLOW sets.
     return {
         terminals,
         nonTerminals,
         rules,
-        firstSets,
         followSets,
-        solvedFirstSets
     };
     } catch (error) {
         console.error("Could not parse input Grammar!");
@@ -2679,67 +2658,10 @@ function createGrammar(input: string): Grammar| null {
     }
 }
 
-// Runs a single pass of the first sets backfilling algorithm to help track what
-// cells can be backfilled in the FIRSTS_COMPUTED step
-function processFirstSets(){
-    // clear any colors and disable the cells
-    firstTable.colorAllCells(HTMLColors.disableColor);
-    firstTable.disableAllCells();
-    var processedFirstSets = new Map<string, Set<string>>();
-    for (const [key, value] of grammar.firstSets.entries()){
-        // Create a copy of the first set to use to prevent changing it during
-        // the loop
-        var newFirstSet = new Set<string>();
-        for (const symbol of value.values()){
-            // Only select the non-terminal values
-            if (grammar.terminals.has(symbol) || symbol == epsilon){
-                // Copy the terminals to the new set
-                newFirstSet.add(symbol);
-                continue;
-            }
-            // Extract the symbol from the string 'First(symbol)'
-            const rawSymbol = extractRowKey(symbol);
-            if (rawSymbol == null){
-                console.error("Column Symbol could not be found!");
-                return;
-            }
-            // Pull the first set from the rawSymbol
-            const childFirstSet = grammar.firstSets.get(rawSymbol);
-            // Null check
-            if (childFirstSet == null){
-                continue;
-            }
-            // Add the child symbols to the new set
-            for (const childSymbol of childFirstSet?.values()){
-                // Check for self referential first sets
-                if (childSymbol == `First(${key})`){
-                    // Skip adding this
-                    continue;
-                }
-                newFirstSet.add(childSymbol);
-            }
-        }
-        // Update the original first set
-        processedFirstSets.set(key, newFirstSet);
-        // Check if this first set is solved
-        var isSolved = true;
-        for (const symbol of newFirstSet.values()){
-            if (!(grammar.terminals.has(symbol) || (symbol == epsilon))){
-                // Not Solved
-                isSolved = false;
-                break;
-            }
-        }
-        // Mark solved as needed
-        if (isSolved){
-            grammar.solvedFirstSets.add(key);
-        }
-    }
-    grammar.firstSets = processedFirstSets;
-}
 
 // Prepares for the follow table to be solved
 function prepForFollowSolve(){
+
     // Un-hide the table
     followTable.setTableHidden(false);
     followTable.renderRules = true;
@@ -2860,7 +2782,7 @@ function prepForFinalTableBuild(){
 function startParser(){
     // Collect and use the input from the user
     resetError();
-    let inputBox = document.getElementById(grammarInputBox) as HTMLTextAreaElement;
+    let inputBox = document.getElementById(grammarInputBox) as HTMLFormElement;
     if (inputBox == null){
         // Could not acquire the input box element
         return null;
@@ -2931,7 +2853,7 @@ function getRandomProduction(L: string, nonTerminals:string = sampleNonTerminals
         }
     }
 
-    return `${L} ::= ${RHS.join(" ")}`;
+    return `${L} ${assignmentSymbol} ${RHS.join(" ")}`;
 }
 
 // Random Grammar Button
@@ -2956,7 +2878,7 @@ function randomGrammar(){
 
         var repeat = true;
         if ((nonTerminals.length - 3) - i < 0){
-            productions.push(`${LHS} ::= e`)
+            productions.push(`${LHS} ${assignmentSymbol} ${epsilon}`)
         }
         while (repeat){
             var prod = getRandomProduction(LHS, nonTerminals);
@@ -2975,11 +2897,19 @@ function randomGrammar(){
     var joinedProductions = productions.join("\n")
     console.log("Productions: ")
     console.log(joinedProductions)
-    let inputBox = document.getElementById(grammarInputBox) as HTMLTextAreaElement;
+    let inputBox = document.getElementById(grammarInputBox) as HTMLFormElement;
     if (inputBox != null){
-        inputBox.innerHTML = joinedProductions;
+        inputBox.textContent = joinedProductions;
     }
 }
 
 const sampleTerminals = '+-()'
 const sampleNonTerminals = 'ABCDEFGHIJKLMNOPQRTUVWXYZ'
+
+
+function handleYes(){
+    checkProgress(false, 1)
+}
+function handleNo(){
+    checkProgress(false, 0)
+}
