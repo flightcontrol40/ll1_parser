@@ -160,7 +160,7 @@ var FollowRules: Map<FollowRuleType, string> = new Map([
     [FollowRuleType.END_OF_PRODUCTION, "A non-terminal at the end of a production."],
 ])
 var first_pass = true;
-
+var input_error_str = "";
 ////////////////////////////////////////////////////////////////////////////////
 //  HTML Helper Functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -557,6 +557,7 @@ type CellData = {
 function resetError(){
     errorState = false
     setInstructionValue("", true);
+    setErrorValue("");
     var instructions = document.getElementById(messageTableID) as HTMLHeadingElement;
     instructions.style.color = HTMLColors.textColor;
     var messageBox = document.getElementById(messageParent) as HTMLDivElement;
@@ -828,9 +829,7 @@ class FirstTable {
         }
         // var cell = getTableCell(this.tableID, rowLabel,columnLabel);
         var selectedCellData = this.getCell(rowLabel, columnLabel);
-        // if (cell == null){
-        //     return;
-        // }
+
         switch (currentStep) {
             case Steps.ENTER_EPSILON:
                 // Check that this cell matches the selected production rule.
@@ -968,6 +967,14 @@ class FirstTable {
                         else {
                             var correctColumn = `First(${currentSymbol})`;
                             if (correctColumn == columnLabel){
+                                if (selectedCellData == null){
+                                    return;
+                                }
+                                // Check if this cell is already set
+                                if (selectedCellData.data != emptyCell && selectedCellData.data != productionTable.selectedProduction.toString()){
+                                    grammarUnparsableError(leftRecursionErrorStr);
+                                    return;
+                                }
                                 // We should place the symbol
                                 var cellData = this.tableData.get(rowLabel)?.get(columnLabel);
                                 if (cellData == null){
@@ -1038,8 +1045,17 @@ class FirstTable {
                         console.error(`First Table missing Row: "${copyRowKey}"`);
                         break;
                     }
-
+                    // Don't copy the row if the row is itself
+                    if (copyRowKey == rowLabel){
+                        // Mark the cell as complete
+                        selectedCellData.data = emptyCell;
+                        selectedCellData.color = HTMLColors.disableColor;
+                        selectedCellData.attributes.delete(CellAttr.needsSimplified);
+                        checkProgress()
+                        break;
+                    }
                     const copyRow = this.tableData.get(copyRowKey) as Map<string, CellData>;
+                    var rowNeedsUpdate = false;
                     for (const [childColumnKey, copyCell] of copyRow) {
                         if (copyCell.data == emptyCell){
                             continue;
@@ -1052,17 +1068,32 @@ class FirstTable {
                         if (childColumnKey == columnLabel){
                             continue;
                         }
+                        const childCell = this.getCell(rowLabel, childColumnKey) as CellData;
+                        // Check if this cell is already set to the same value and needs simplified
+                        if (selectedCellData.data == childCell.data){
+                            // Already set to the same value, just continue
+                            continue;
+                        }
+                        rowNeedsUpdate = true;
                         // This a column that needs to be copied.
                         copyCell.color = HTMLColors.darkHighlightColor;
                         this.parentCellChildren.push(childColumnKey)
                         // Enable and color the matching the cell in this row
-                        const childCell = this.getCell(rowLabel, childColumnKey) as CellData;
                         childCell.color = HTMLColors.highlightColor;
                         childCell.enabled = true;
                         childCell.attributes.set(CellAttr.copyCellKey, copyRowKey);
                     }
                     this.parentCellSelection = {rowLabel, columnLabel};
-                    setInstructionValue(`Place a ${selectedCellData.data} in all the columns in the ${rowLabel} where there is a value in the ${copyRowKey} row.`)
+                    setInstructionValue(`Place a ${selectedCellData.data} in all the columns in the ${rowLabel} row where there is a value in the ${copyRowKey} row.`)
+                    if (!rowNeedsUpdate){
+                        // Mark the cell as complete
+                        selectedCellData.data = emptyCell;
+                        selectedCellData.color = HTMLColors.disableColor;
+                        selectedCellData.attributes.delete(CellAttr.needsSimplified);
+                        checkProgress()
+                        setInstructionValue(`Select a new cell.`)
+
+                    }
                 }
                 // Child Cell that needs to be filled
                 else {
@@ -1168,7 +1199,7 @@ class FirstTable {
                     break;
                 }
                 // Check if there is already different a value in this cell
-                if (selectedCellData.data != emptyCell && selectedCellData.data != selectedCellData.data){
+                if (selectedCellData.data != emptyCell && selectedCellData.data != selectedFollowCell.data){
                     grammarUnparsableError(unparsableGrammarErrorStr);
                 }
                 // Set the value disable both cells
@@ -2055,7 +2086,7 @@ function checkProgress(delayInstruction: boolean = true, userChoice: number = -1
                 // Walk through production and check if all of its firsts are placed
                 for (var i = 0; i < prod.rule.right.length; i++ ){
                     var currentSymbol = prod.rule.right[i];
-                    if (grammar.terminals.has(currentSymbol)){
+                    if (grammar.terminals.has(currentSymbol) || currentSymbol == epsilon){
                         var cell = firstTable.getCell(prod.rule.left, currentSymbol);
                         if (cell?.data != emptyCell){
                             // Production complete
@@ -2075,14 +2106,25 @@ function checkProgress(delayInstruction: boolean = true, userChoice: number = -1
                             break;
                         }
                         else {
-                            // Only continue if the symbol is nullable
+                            // Only continue if the symbol is nullable,
                             var epsilonCell = firstTable.getCell(currentSymbol, epsilon);
                             if (epsilonCell?.data != emptyCell){
+                                // Check if the correct column is set with the same value
+                                if (cell?.data != prod.idx.toString()){
+                                    // Not complete yet, Left recursion will happen
+                                    prodComplete = false;
+                                    break;
+                                }
                                 // Is nullable, Continue
                                 continue;
                             }
                             else {
                                 // Done
+                                if (cell?.data != prod.idx.toString()) {
+                                    // Not complete yet, Left recursion may happen
+                                    prodComplete = false;
+                                    break;
+                                }
                                 break
                             }
                         }
@@ -2561,6 +2603,7 @@ function checkProgress(delayInstruction: boolean = true, userChoice: number = -1
 // This function parses an array of strings, where each string is a production rule,
 // into a structured Grammar object.
 function createGrammar(input: string): Grammar| null {
+    input_error_str ="";
     try {
     // Initialize an empty array for production rules.
     const rules: ProductionRule[] = [];
@@ -2583,6 +2626,11 @@ function createGrammar(input: string): Grammar| null {
     epsilon = epsilonElem.value?.trim()
     console.log("assignment: ", assignmentSymbol)
     console.log("epsilon: ", epsilon)
+    if (["", "$", "S"].includes(assignmentSymbol) || ["", "$","S"].includes(epsilon) || assignmentSymbol == epsilon){
+        console.error("Invalid Assignment or Epsilon Symbol!")
+        input_error_str = "Invalid Assignment or Epsilon Symbol!"
+        return null;
+    }
     // Split input string into lines
     var inputLines = input.trim().split(/(?:\r?\n)+/)
     // Add the starting rule
@@ -2592,7 +2640,9 @@ function createGrammar(input: string): Grammar| null {
     for (const line of inputLines) {
         const sides = line.split(assignmentSymbol).map((s) => s.trim());
         if (sides.length != 2){
-            return null
+            console.error("Production cannot use the Assignment Symbol twice!");
+            input_error_str = "Production cannot use the Assignment Symbol twice!"
+            return null;
         }
         // The left-hand side is always a non-terminal.
         inputNonTerms.add(sides[0]);
@@ -2606,7 +2656,7 @@ function createGrammar(input: string): Grammar| null {
 
     for (const line of productionStrings) {
         // Split the production rule by assignment symbol and remove extra whitespace.
-        const [left, right] = line.split(assignmentSymbol).map((s) => s.trim());
+        const [left, right] = line.split(assignmentSymbol, 2).map((s) => s.trim());
         // Split the right-hand side by the OR symbol ('|') to get alternative productions.
         // Each alternative represents a separate production rule.
         const alternatives = right.split("|").map(alt => alt.trim());
@@ -2617,22 +2667,54 @@ function createGrammar(input: string): Grammar| null {
             // Filter out any empty strings that might occur due to extra whitespace.
             const rightSymbols = alt.split(" ").filter(sym => sym.length > 0);
 
-            // Create a production rule object and add it to the rules array.
-            rules.push({ left, right: rightSymbols });
+            // If the production only contains epsilon, keep it as is
+            if (rightSymbols.length === 1 && rightSymbols[0] === epsilon) {
+                // Check that this production is not already in the rules
+                if (rules.some(rule => rule.left === left && rule.right.every((element, index) => element === rightSymbols[index]))) {
+                    // Rule already exists
+                    continue;
+                }
+                rules.push({ left, right: rightSymbols });
+                continue;
+              }
 
+              // Remove epsilon from the production if it contains other symbols
+              const filteredProduction = rightSymbols.filter(symbol => symbol !== epsilon);
 
+              // If after removing epsilon the production is not empty, add it
+              if (filteredProduction.length > 0) {
+                if (rules.some(rule => rule.left === left && rule.right.every((element, index) => element === rightSymbols[index]))) {
+                    // Rule already exists
+                    continue;
+                }
+                rules.push({ left, right: filteredProduction });
+              }
+            var badRightSymbol = false;
             // Determine if each symbol on the right-hand side is a terminal or non-terminal.
-            rightSymbols.forEach((symbol) => {
+            filteredProduction.forEach((symbol) => {
                 console.log(`Right Symbol: ${symbol}`)
                 // Skip for epsilon
                 if (symbol == epsilon){
-                    // Do nothing
                 }
-
+                // Check if the symbol is the assignment symbol
+                else if (symbol == assignmentSymbol){
+                    console.error("Production cannot use the Assignment Symbol twice!");
+                    input_error_str = "Production cannot use the Assignment Symbol twice!"
+                    badRightSymbol = true;
+                }
+                // Check if they are using the Start symbol
+                else if (symbol == "S"){
+                    console.error("Invalid Production with non-term 'S'!");
+                    input_error_str = "Cannot use reserved Start Symbol S!"
+                    badRightSymbol = true;
+                }
                 else if (!(nonTerminals.has(symbol))) {
                     terminals.add(symbol);
                 }
             });
+            if (badRightSymbol){
+                return null;
+            }
         }
 
     }
@@ -2643,6 +2725,24 @@ function createGrammar(input: string): Grammar| null {
     // Check for empty productions
     if (nonTerminals.size == 0){
         // No productions entered
+        return null;
+    }
+    if (terminals.has(epsilon) || terminals.has(assignmentSymbol)){
+        // Epsilon or Assignment symbol is a terminal
+        console.error("Epsilon or Assignment Symbol is a Terminal!");
+        input_error_str = "Epsilon or Assignment Symbol is a Terminal!"
+        return null;
+    }
+    if (nonTerminals.has(epsilon) || nonTerminals.has(assignmentSymbol)){
+        // Epsilon or Assignment symbol is a non-terminal
+        console.error("Epsilon or Assignment Symbol is a Non-Terminal!");
+        input_error_str = "Epsilon or Assignment Symbol is a Non-Terminal!"
+        return null;
+    }
+    // Always one terminal of $
+    if (terminals.size == 1){
+        console.error("No Non-Terminals Found!");
+        input_error_str = "No Non-Terminals Found in grammar!"
         return null;
     }
     // Return the structured grammar object with empty FIRST and FOLLOW sets.
@@ -2657,7 +2757,6 @@ function createGrammar(input: string): Grammar| null {
         return null;
     }
 }
-
 
 // Prepares for the follow table to be solved
 function prepForFollowSolve(){
@@ -2766,7 +2865,7 @@ function prepForFinalTableBuild(){
                 cellData.enabled = true;
             }
         }
-        if (rowNeeded = false){
+        if (rowNeeded == false){
             removeRows.push(rowKey);
         }
     }
@@ -2774,6 +2873,7 @@ function prepForFinalTableBuild(){
     followTable.rows = followTable.rows.filter(item => !removeRows.includes(item));
     followTable.render();
     firstTable.render();
+    checkProgress();
 }
 
 
@@ -2790,9 +2890,15 @@ function startParser(){
     grammar = createGrammar(inputBox.value) as Grammar;
     if (grammar == null){
         setInstructionValue("");
-        setErrorValue(
-            "Could Not Parse the inputted grammar. Please check for typos and try again!"
-        );
+        if (input_error_str == ""){
+            setErrorValue(
+                "Could Not Parse the inputted grammar. Please check for typos and try again!"
+            );
+        }
+        else {
+            setErrorValue(input_error_str);
+            input_error_str = ""
+        }
     }
     else {
         currentStep = Steps.ENTER_EPSILON;
@@ -2897,9 +3003,11 @@ function randomGrammar(){
     var joinedProductions = productions.join("\n")
     console.log("Productions: ")
     console.log(joinedProductions)
-    let inputBox = document.getElementById(grammarInputBox) as HTMLFormElement;
+    let inputBox = document.getElementById(grammarInputBox) as HTMLTextAreaElement;
+    console.log(inputBox)
+    
     if (inputBox != null){
-        inputBox.textContent = joinedProductions;
+        inputBox.value = joinedProductions;
     }
 }
 
